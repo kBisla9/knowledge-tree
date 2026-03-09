@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 from rich.console import Console
 
+from knowledge_tree import __version__
 from knowledge_tree import cli as cli_module
 from knowledge_tree.cli import cli
 
@@ -69,7 +70,7 @@ class TestCliGroup:
     def test_version(self, cli_runner, _patch_consoles):
         result = cli_runner.invoke(cli, ["--version"])
         assert result.exit_code == 0
-        assert "0.1.1" in result.output
+        assert __version__ in result.output
 
     def test_unknown_command(self, cli_runner, _patch_consoles):
         result = cli_runner.invoke(cli, ["nonexistent-cmd"])
