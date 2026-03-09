@@ -1,0 +1,12 @@
+name: git-conventions
+description: Git commit message standards and branching strategy
+authors:
+  - Knowledge Tree Team
+classification: evergreen
+parent: base
+tags:
+  - git
+  - conventions
+content:
+  - commit-messages.md
+created: '2026-01-01'

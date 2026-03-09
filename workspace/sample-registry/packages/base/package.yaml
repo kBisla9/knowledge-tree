@@ -1,0 +1,13 @@
+name: base
+description: Universal coding conventions and safe practices
+authors:
+  - Knowledge Tree Team
+classification: evergreen
+tags:
+  - core
+  - conventions
+  - safety
+content:
+  - safe-deletion.md
+  - file-management.md
+created: '2026-01-01'

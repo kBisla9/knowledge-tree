@@ -1,0 +1,27 @@
+packages:
+  api-patterns:
+    description: REST API design patterns and authentication standards
+    classification: seasonal
+    tags:
+      - api
+      - rest
+      - authentication
+    path: packages/api-patterns
+    depends_on:
+      - base
+  base:
+    description: Universal coding conventions and safe practices
+    classification: evergreen
+    tags:
+      - core
+      - conventions
+      - safety
+    path: packages/base
+  git-conventions:
+    description: Git commit message standards and branching strategy
+    classification: evergreen
+    tags:
+      - git
+      - conventions
+    path: packages/git-conventions
+    parent: base

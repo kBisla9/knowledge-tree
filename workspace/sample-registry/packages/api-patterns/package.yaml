@@ -1,0 +1,15 @@
+name: api-patterns
+description: REST API design patterns and authentication standards
+authors:
+  - Knowledge Tree Team
+classification: seasonal
+depends_on:
+  - base
+tags:
+  - api
+  - rest
+  - authentication
+content:
+  - rest-conventions.md
+  - authentication.md
+created: '2026-01-01'
