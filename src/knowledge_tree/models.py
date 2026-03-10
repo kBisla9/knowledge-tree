@@ -472,7 +472,10 @@ class Registry:
         """Validate the registry id. Returns list of error strings."""
         errors: list[str] = []
         if not self.id:
-            errors.append("'id' is required in registry.yaml")
+            errors.append(
+                "'id' is required in registry.yaml. "
+                "Run 'kt author rebuild <path>' to generate one."
+            )
         elif not _is_valid_uuid_hex(self.id):
             errors.append(
                 f"Invalid registry id '{self.id}'. "

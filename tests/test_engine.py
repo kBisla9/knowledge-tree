@@ -865,6 +865,95 @@ class TestRegistryRebuild:
         assert "yaml-name" in registry.packages
         assert registry.packages["yaml-name"].path == "packages/dir-name"
 
+    def test_rebuild_preserves_existing_id(self, registry_repo: tuple[Path, Path]):
+        _, work = registry_repo
+        engine = KnowledgeTreeEngine(work)
+        engine.registry_rebuild(work)
+
+        from knowledge_tree.models import Registry
+
+        registry = Registry.from_yaml_file(work / "registry.yaml")
+        assert registry.id == "7348a577b60f490ba872367ed8e41371"
+
+    def test_rebuild_generates_id_when_missing(self, tmp_path):
+        registry_dir = tmp_path / "no-id-registry"
+        registry_dir.mkdir()
+        pkg_dir = registry_dir / "packages" / "simple"
+        pkg_dir.mkdir(parents=True)
+        (pkg_dir / "package.yaml").write_text(
+            "name: simple\n"
+            "description: A simple package\n"
+            "authors:\n  - Test\n"
+            "classification: evergreen\n"
+        )
+        # registry.yaml with no id
+        (registry_dir / "registry.yaml").write_text("packages: {}\n")
+
+        engine = KnowledgeTreeEngine(tmp_path)
+        engine.registry_rebuild(registry_dir)
+
+        from knowledge_tree.models import Registry, _is_valid_uuid_hex
+
+        registry = Registry.from_yaml_file(registry_dir / "registry.yaml")
+        assert _is_valid_uuid_hex(registry.id)
+
+    def test_rebuild_preserves_templates(self, tmp_path):
+        registry_dir = tmp_path / "tpl-registry"
+        registry_dir.mkdir()
+        pkg_dir = registry_dir / "packages" / "simple"
+        pkg_dir.mkdir(parents=True)
+        (pkg_dir / "package.yaml").write_text(
+            "name: simple\n"
+            "description: A simple package\n"
+            "authors:\n  - Test\n"
+            "classification: evergreen\n"
+        )
+        (registry_dir / "registry.yaml").write_text(
+            "id: aabbccdd11223344aabbccdd11223344\n"
+            "templates:\n"
+            "  - source: templates/config.md\n"
+            "    dest: my-dir/config.md\n"
+            "packages:\n"
+            "  old-pkg:\n"
+            "    description: Will be replaced\n"
+            "    classification: evergreen\n"
+            "    path: packages/old-pkg\n"
+        )
+
+        engine = KnowledgeTreeEngine(tmp_path)
+        engine.registry_rebuild(registry_dir)
+
+        from knowledge_tree.models import Registry
+
+        registry = Registry.from_yaml_file(registry_dir / "registry.yaml")
+        assert registry.id == "aabbccdd11223344aabbccdd11223344"
+        assert len(registry.templates) == 1
+        assert registry.templates[0].source == "templates/config.md"
+        assert registry.templates[0].dest == "my-dir/config.md"
+        # Packages were rebuilt (old-pkg gone, simple added)
+        assert "simple" in registry.packages
+        assert "old-pkg" not in registry.packages
+
+    def test_rebuild_generates_id_when_no_registry_yaml(self, tmp_path):
+        registry_dir = tmp_path / "fresh-registry"
+        registry_dir.mkdir()
+        pkg_dir = registry_dir / "packages" / "simple"
+        pkg_dir.mkdir(parents=True)
+        (pkg_dir / "package.yaml").write_text(
+            "name: simple\n"
+            "description: A simple package\n"
+            "authors:\n  - Test\n"
+            "classification: evergreen\n"
+        )
+
+        engine = KnowledgeTreeEngine(tmp_path)
+        engine.registry_rebuild(registry_dir)
+
+        from knowledge_tree.models import Registry, _is_valid_uuid_hex
+
+        registry = Registry.from_yaml_file(registry_dir / "registry.yaml")
+        assert _is_valid_uuid_hex(registry.id)
+
 
 # ---------------------------------------------------------------------------
 # Local directory backend

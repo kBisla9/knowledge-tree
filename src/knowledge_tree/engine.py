@@ -1443,10 +1443,28 @@ class KnowledgeTreeEngine:
     def registry_rebuild(self, registry_path: Path) -> int:
         """Rebuild registry.yaml from packages directory.
 
+        Preserves the existing registry id if present, otherwise generates one.
         Returns the number of packages found.
         """
+        import uuid
+
+        yaml_path = registry_path / "registry.yaml"
+
+        # Preserve existing id and templates (or generate a new id)
+        existing_id = ""
+        existing_templates: list = []
+        if yaml_path.exists():
+            try:
+                existing = Registry.from_yaml_file(yaml_path)
+                existing_id = existing.id
+                existing_templates = existing.templates
+            except ValueError:
+                pass  # Corrupted file — will be overwritten
+
         packages_dir = registry_path / "packages"
         registry = Registry()
+        registry.id = existing_id if existing_id else uuid.uuid4().hex
+        registry.templates = existing_templates
         registry.rebuild_from_packages(packages_dir)
-        registry.to_yaml_file(registry_path / "registry.yaml")
+        registry.to_yaml_file(yaml_path)
         return len(registry.packages)
