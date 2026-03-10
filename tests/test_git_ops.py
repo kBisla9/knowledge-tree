@@ -155,8 +155,11 @@ class TestUnshallow:
 
 
 class TestEnsureGitIdentity:
-    def test_sets_identity_when_missing(self, cloned_repo):
-        # Remove any existing user config
+    def test_sets_identity_when_missing(self, cloned_repo, monkeypatch):
+        # Isolate from any global/system git config
+        monkeypatch.setenv("GIT_CONFIG_GLOBAL", "/dev/null")
+        monkeypatch.setenv("GIT_CONFIG_SYSTEM", "/dev/null")
+        # Remove any existing local user config
         git_ops.run_git(["config", "--unset", "user.name"], cwd=cloned_repo)
         git_ops.run_git(["config", "--unset", "user.email"], cwd=cloned_repo)
 
@@ -178,7 +181,10 @@ class TestEnsureGitIdentity:
         assert name == "Custom User"
         assert email == "custom@example.com"
 
-    def test_sets_only_missing_fields(self, cloned_repo):
+    def test_sets_only_missing_fields(self, cloned_repo, monkeypatch):
+        # Isolate from any global/system git config
+        monkeypatch.setenv("GIT_CONFIG_GLOBAL", "/dev/null")
+        monkeypatch.setenv("GIT_CONFIG_SYSTEM", "/dev/null")
         git_ops.run_git(["config", "user.name", "Custom User"], cwd=cloned_repo)
         git_ops.run_git(["config", "--unset", "user.email"], cwd=cloned_repo)
 

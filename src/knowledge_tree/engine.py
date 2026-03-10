@@ -23,6 +23,8 @@ from knowledge_tree.models import (
     Registry,
     RegistryAddResult,
     RegistryInfo,
+    RegistryPreview,
+    RegistryPreviewPackage,
     RegistrySource,
     RemoveResult,
     SearchResultEntry,
@@ -215,12 +217,16 @@ class KnowledgeTreeEngine:
         branch: str = "main",
         tool_format: str | None = None,
         install_packages: bool = True,
+        selected_packages: list[str] | None = None,
     ) -> RegistryAddResult:
         """Add a new registry source to the project.
 
         When *install_packages* is ``True`` (default), installs all packages,
         exports them (if *tool_format* provided), and instantiates registry-level
         templates.
+
+        When *selected_packages* is provided, only those packages are installed
+        and exported (instead of all packages in the registry).
 
         When *install_packages* is ``False``, only registers the source.
         """
@@ -281,8 +287,14 @@ class KnowledgeTreeEngine:
         if not install_packages:
             return result
 
-        # Install all packages from this registry
-        for pkg_name in sorted(registry.packages.keys()):
+        # Determine which packages to install
+        if selected_packages is not None:
+            packages_to_install = sorted(selected_packages)
+        else:
+            packages_to_install = sorted(registry.packages.keys())
+
+        # Install packages from this registry
+        for pkg_name in packages_to_install:
             try:
                 add_result = self.add_package(pkg_name, from_registry=name)
                 result.packages_installed.extend(add_result.installed)
@@ -290,10 +302,10 @@ class KnowledgeTreeEngine:
             except ValueError:
                 result.packages_skipped.append(pkg_name)
 
-        # Export all packages if tool format provided
+        # Export packages if tool format provided
         if tool_format:
             cache_dir = self._registry_cache_dir(name)
-            for pkg_name in sorted(registry.packages.keys()):
+            for pkg_name in packages_to_install:
                 try:
                     export_result = self.export_package(pkg_name, tool_format)
                     result.files_exported += len(export_result.files_written)
@@ -302,7 +314,7 @@ class KnowledgeTreeEngine:
                     pass  # best-effort
 
             # Collect command names that were exported
-            for pkg_name in sorted(registry.packages.keys()):
+            for pkg_name in packages_to_install:
                 entry = registry.packages.get(pkg_name)
                 if entry:
                     pkg_yaml = cache_dir / entry.path / "package.yaml"
@@ -319,6 +331,110 @@ class KnowledgeTreeEngine:
             result.templates_skipped.extend(skip)
 
         return result
+
+    # ------------------------------------------------------------------
+    # preview_registry
+    # ------------------------------------------------------------------
+
+    def preview_registry(
+        self,
+        source: str,
+        name: str | None = None,
+        branch: str = "main",
+    ) -> RegistryPreview:
+        """Clone/cache a registry and return a preview of what would be installed.
+
+        Performs the clone/copy step but does NOT install, export, or
+        instantiate templates.  Intended to be called before ``add_registry()``
+        so the CLI can show a confirmation screen.
+
+        If the registry is already registered (same source URL), reuses it.
+        """
+        preview = RegistryPreview()
+
+        # Auto-init if .knowledge-tree/ doesn't exist
+        if not self.knowledge_tree_dir.exists():
+            self.init()
+
+        # Auto-derive name from URL if not provided
+        if name is None:
+            parts = source.rstrip("/").split("/")
+            name = parts[-1].replace(".git", "") if parts else "default"
+
+        config = self._load_config()
+
+        # Check if this source is already registered
+        existing_reg = None
+        for r in config.registries:
+            if r.source == source:
+                existing_reg = r
+                break
+
+        if existing_reg:
+            name = existing_reg.name
+            preview.source_type = existing_reg.type
+        else:
+            if config.get_registry(name) is not None:
+                raise ValueError(f"Registry '{name}' already exists.")
+
+            source_type = registry_source.detect_source_type(source)
+            cache_dir = self._registry_cache_dir(name)
+
+            registry_source.populate_cache(
+                source=source,
+                dest=cache_dir,
+                branch=branch,
+                source_type=source_type,
+            )
+
+            reg_id = uuid.uuid4().hex[:8]
+            reg = RegistrySource(
+                id=reg_id,
+                name=name,
+                source=source,
+                ref=branch if source_type == "git" else "",
+                type=source_type,
+            )
+            config.add_registry(reg)
+            config.to_yaml_file(self.config_path)
+            preview.source_type = source_type
+
+        preview.name = name
+        preview.source = source
+
+        # Load registry to enumerate packages
+        registry = self._load_registry(name)
+        cache_dir = self._registry_cache_dir(name)
+
+        for pkg_name in sorted(registry.packages.keys()):
+            entry = registry.packages[pkg_name]
+            # Load full metadata for content_type
+            content_type = "knowledge"
+            pkg_yaml = cache_dir / entry.path / "package.yaml"
+            if pkg_yaml.exists():
+                meta = PackageMetadata.from_yaml_file(pkg_yaml)
+                content_type = meta.content_type or "knowledge"
+
+            preview.packages.append(
+                RegistryPreviewPackage(
+                    name=pkg_name,
+                    description=entry.description,
+                    classification=entry.classification or "seasonal",
+                    content_type=content_type,
+                    tags=list(entry.tags),
+                    depends_on=list(entry.depends_on),
+                )
+            )
+
+        # Templates — check which destinations already exist
+        for tmpl in registry.templates:
+            dest = self.project_root / tmpl.dest
+            if dest.exists():
+                preview.templates_existing.append(tmpl.dest)
+            else:
+                preview.templates.append(tmpl.dest)
+
+        return preview
 
     # ------------------------------------------------------------------
     # remove_registry
@@ -345,6 +461,9 @@ class KnowledgeTreeEngine:
         if from_this:
             for pkg in list(from_this):
                 self.remove_package(pkg.name)
+            # Reload config — remove_package() saves its own copy each iteration,
+            # so our original snapshot is stale.
+            config = self._load_config()
 
         # Remove cache dir
         cache_dir = self._registry_cache_dir(name)

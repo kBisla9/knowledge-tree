@@ -104,12 +104,12 @@ _EXPORTER_REGISTRY: dict[str, tuple[str, str, str]] = {
     "claude-code": (
         "knowledge_tree.exporters.claude_code",
         "ClaudeCodeExporter",
-        "Claude Code skills (.claude/skills/)",
+        "Claude Code",
     ),
     "roo-code": (
         "knowledge_tree.exporters.roo_code",
         "RooCodeExporter",
-        "Roo Code rules (.roo/rules/)",
+        "Roo Code",
     ),
 }
 

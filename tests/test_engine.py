@@ -1107,6 +1107,29 @@ class TestMultiRegistry:
         engine.add_package("internal-rules")
         engine.remove_registry("internal", force=True)
 
+    def test_remove_registry_force_cleans_packages_and_exports(self, multi_project):
+        """Regression: force-remove must not leave orphaned package/export entries."""
+        engine, project = multi_project
+        from knowledge_tree.models import ProjectConfig
+
+        # Install a package and export it
+        engine.add_package("internal-rules")
+        engine.export_package("internal-rules", "claude-code")
+
+        # Sanity: package and export exist
+        config = ProjectConfig.from_yaml_file(project / ".knowledge-tree" / "kt.yaml")
+        assert "internal-rules" in config.get_installed_names()
+        assert any(e.name == "internal-rules" for e in config.get_exports())
+
+        # Force-remove the registry
+        engine.remove_registry("internal", force=True)
+
+        # Reload and verify everything is gone
+        config = ProjectConfig.from_yaml_file(project / ".knowledge-tree" / "kt.yaml")
+        assert "internal-rules" not in config.get_installed_names()
+        assert not any(e.name == "internal-rules" for e in config.get_exports())
+        assert config.get_registry("internal") is None
+
     def test_add_duplicate_registry_name_fails(self, multi_project):
         engine, _ = multi_project
         with pytest.raises(ValueError, match="already exists"):

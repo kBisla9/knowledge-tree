@@ -912,6 +912,30 @@ class PackageListEntry:
 
 
 @dataclass
+class RegistryPreviewPackage:
+    """A package entry in a registry preview."""
+
+    name: str = ""
+    description: str = ""
+    classification: str = ""  # evergreen / seasonal
+    content_type: str = ""  # knowledge / commands
+    tags: list[str] = field(default_factory=list)
+    depends_on: list[str] = field(default_factory=list)
+
+
+@dataclass
+class RegistryPreview:
+    """Preview of what add_registry() will do, before executing."""
+
+    name: str = ""
+    source: str = ""
+    source_type: str = ""  # git / local / archive
+    packages: list[RegistryPreviewPackage] = field(default_factory=list)
+    templates: list[str] = field(default_factory=list)  # dest paths to create
+    templates_existing: list[str] = field(default_factory=list)  # already exist
+
+
+@dataclass
 class RegistryAddResult:
     """Result of add_registry()."""
 

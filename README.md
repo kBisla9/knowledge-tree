@@ -1,5 +1,7 @@
 # Knowledge Tree
 
+Crowdsourced knowledge management for AI agent context.
+
 [![CI](https://github.com/kBisla9/knowledge-tree/actions/workflows/ci.yml/badge.svg)](https://github.com/kBisla9/knowledge-tree/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/kBisla9/knowledge-tree/branch/main/graph/badge.svg)](https://codecov.io/gh/kBisla9/knowledge-tree)
 [![PyPI](https://img.shields.io/pypi/v/knowledge-tree)](https://pypi.org/project/knowledge-tree/)

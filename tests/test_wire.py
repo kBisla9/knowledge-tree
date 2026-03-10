@@ -16,6 +16,7 @@ from knowledge_tree.models import (
     CommandEntry,
     PackageMetadata,
     Registry,
+    RegistryPreview,
     TemplateMapping,
 )
 
@@ -814,3 +815,129 @@ class TestRegistryAddRooCode:
         # Rules created even without .roo/ pre-existing
         rules_dir = project / ".roo" / "rules"
         assert rules_dir.is_dir()
+
+
+# ---------------------------------------------------------------------------
+# TestPreviewRegistry
+# ---------------------------------------------------------------------------
+
+
+class TestPreviewRegistry:
+    """Tests for engine.preview_registry() and selected_packages."""
+
+    def test_preview_returns_packages(self, registry_repo, tmp_path):
+        bare, _ = registry_repo
+        project = tmp_path / "preview-project"
+        project.mkdir()
+        engine = KnowledgeTreeEngine(project)
+
+        preview = engine.preview_registry(str(bare))
+
+        assert isinstance(preview, RegistryPreview)
+        assert preview.name  # auto-derived
+        assert preview.source == str(bare)
+        assert preview.source_type == "git"
+        names = [p.name for p in preview.packages]
+        assert "base" in names
+        assert "api-patterns" in names
+        assert len(preview.packages) == 4
+
+    def test_preview_package_metadata(self, registry_repo, tmp_path):
+        bare, _ = registry_repo
+        project = tmp_path / "preview-meta"
+        project.mkdir()
+        engine = KnowledgeTreeEngine(project)
+
+        preview = engine.preview_registry(str(bare))
+
+        base = next(p for p in preview.packages if p.name == "base")
+        assert base.description == "Universal coding conventions"
+        assert base.classification == "evergreen"
+        assert "core" in base.tags
+
+        api = next(p for p in preview.packages if p.name == "api-patterns")
+        assert api.classification == "seasonal"
+        assert "base" in api.depends_on
+
+    def test_preview_then_add_no_double_clone(self, registry_repo, tmp_path):
+        """After preview_registry, add_registry should reuse the cached source."""
+        bare, _ = registry_repo
+        project = tmp_path / "preview-add"
+        project.mkdir()
+        engine = KnowledgeTreeEngine(project)
+
+        preview = engine.preview_registry(str(bare))
+        result = engine.add_registry(str(bare), tool_format=None, install_packages=True)
+
+        assert result.name == preview.name
+        assert len(result.packages_installed) == 4
+
+    def test_selected_packages(self, registry_repo, tmp_path):
+        """add_registry with selected_packages installs only those."""
+        bare, _ = registry_repo
+        project = tmp_path / "selected-pkgs"
+        project.mkdir()
+        engine = KnowledgeTreeEngine(project)
+
+        engine.preview_registry(str(bare))
+        result = engine.add_registry(
+            str(bare),
+            install_packages=True,
+            selected_packages=["base", "git-conventions"],
+        )
+
+        assert "base" in result.packages_installed
+        assert "git-conventions" in result.packages_installed
+        assert "api-patterns" not in result.packages_installed
+        assert "session-mgmt" not in result.packages_installed
+
+    def test_selected_packages_exports_only_selected(self, registry_repo, tmp_path):
+        """Export should only cover selected packages."""
+        bare, _ = registry_repo
+        project = tmp_path / "selected-export"
+        project.mkdir()
+        engine = KnowledgeTreeEngine(project)
+
+        engine.preview_registry(str(bare))
+        result = engine.add_registry(
+            str(bare),
+            tool_format="claude-code",
+            install_packages=True,
+            selected_packages=["base"],
+        )
+
+        assert result.files_exported > 0
+        # base should be exported
+        base_skill = project / ".claude" / "skills"
+        assert base_skill.is_dir()
+        # api-patterns should NOT be exported
+        config = engine._load_config()
+        installed_names = [p.name for p in config.packages]
+        assert "base" in installed_names
+        assert "api-patterns" not in installed_names
+
+    def test_selected_packages_empty_list(self, registry_repo, tmp_path):
+        """Empty selected_packages installs nothing."""
+        bare, _ = registry_repo
+        project = tmp_path / "empty-select"
+        project.mkdir()
+        engine = KnowledgeTreeEngine(project)
+
+        engine.preview_registry(str(bare))
+        result = engine.add_registry(str(bare), install_packages=True, selected_packages=[])
+
+        assert result.packages_installed == []
+        assert result.files_exported == 0
+
+    def test_preview_cancel_cleanup(self, registry_repo, tmp_path):
+        """After preview, remove_registry cleans up properly."""
+        bare, _ = registry_repo
+        project = tmp_path / "cancel-project"
+        project.mkdir()
+        engine = KnowledgeTreeEngine(project)
+
+        preview = engine.preview_registry(str(bare))
+        assert (project / ".knowledge-tree" / "registries" / preview.name).is_dir()
+
+        engine.remove_registry(preview.name, force=True)
+        assert not (project / ".knowledge-tree" / "registries" / preview.name).is_dir()

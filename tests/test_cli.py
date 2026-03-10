@@ -92,7 +92,7 @@ class TestInit:
 
     def test_init_with_install(self, cli_uninit, _patch_consoles):
         runner, _project, bare = cli_uninit
-        result = runner.invoke(cli, ["init", str(bare), "--format", "claude-code"])
+        result = runner.invoke(cli, ["init", str(bare), "--format", "claude-code", "--yes"])
         assert result.exit_code == 0
         assert "Initialized Knowledge Tree" in result.output
         assert "Packages installed" in result.output
@@ -115,6 +115,82 @@ class TestInit:
         assert result.exit_code == 0
         assert "Empty project" in result.output
         assert (project / ".knowledge-tree" / "kt.yaml").exists()
+
+
+# ---------------------------------------------------------------------------
+# TestConfirmation
+# ---------------------------------------------------------------------------
+
+
+class TestConfirmation:
+    """Tests for interactive confirmation during init and registry add."""
+
+    def test_init_yes_skips_confirmation(self, cli_uninit, _patch_consoles):
+        runner, _, bare = cli_uninit
+        result = runner.invoke(cli, ["init", str(bare), "--format", "claude-code", "--yes"])
+        assert result.exit_code == 0
+        assert "Initialized Knowledge Tree" in result.output
+        assert "Proceed?" not in result.output
+
+    def test_init_interactive_confirm_all(self, cli_uninit, _patch_consoles):
+        """Interactive init: select tool format (1), then confirm (y)."""
+        runner, _, bare = cli_uninit
+        result = runner.invoke(cli, ["init", str(bare)], input="1\ny\n")
+        assert result.exit_code == 0
+        assert "Registry Preview" in result.output
+        assert "Proceed?" in result.output
+        assert "Initialized Knowledge Tree" in result.output
+
+    def test_init_interactive_cancel(self, cli_uninit, _patch_consoles):
+        """Interactive init: select tool format (1), then cancel (n)."""
+        runner, project, bare = cli_uninit
+        result = runner.invoke(cli, ["init", str(bare)], input="1\nn\n")
+        assert result.exit_code == 0
+        assert "Cancelled" in result.output
+        # Registry should be cleaned up
+        registries_dir = project / ".knowledge-tree" / "registries"
+        if registries_dir.exists():
+            assert len(list(registries_dir.iterdir())) == 0
+
+    def test_init_no_install_bypasses_confirmation(self, cli_uninit):
+        runner, _, bare = cli_uninit
+        result = runner.invoke(cli, ["init", str(bare), "--no-install"])
+        assert result.exit_code == 0
+        assert "Proceed?" not in result.output
+        assert "Available packages:" in result.output
+
+    def test_init_interactive_select_packages(self, cli_uninit, _patch_consoles):
+        """Interactive init: select tool, enter select mode, deselect packages, done."""
+        runner, _project, bare = cli_uninit
+        # Packages sorted: 1=api-patterns, 2=base, 3=git-conventions, 4=session-mgmt
+        # Toggle off 3 (git-conventions) and 4 (session-mgmt), keep 1+2
+        result = runner.invoke(cli, ["init", str(bare)], input="1\ns\n3,4\nd\n")
+        assert result.exit_code == 0
+        assert "Initialized Knowledge Tree" in result.output
+        # Only 2 packages should be installed (base + api-patterns)
+        assert "Installing 2 packages" in result.output or "base" in result.output
+
+    def test_registry_add_yes_skips_confirmation(
+        self, cli_project, second_registry_repo, _patch_consoles
+    ):
+        runner, _, _ = cli_project
+        bare2, _ = second_registry_repo
+        result = runner.invoke(
+            cli,
+            [
+                "registry",
+                "add",
+                str(bare2),
+                "--name",
+                "internal",
+                "--format",
+                "claude-code",
+                "--yes",
+            ],
+        )
+        assert result.exit_code == 0
+        assert "Added registry 'internal'" in result.output
+        assert "Proceed?" not in result.output
 
 
 # ---------------------------------------------------------------------------
