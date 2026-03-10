@@ -118,6 +118,7 @@ def registry_repo(tmp_path: Path) -> tuple[Path, Path]:
 
     # Create registry.yaml
     (work / "registry.yaml").write_text(
+        "id: 7348a577b60f490ba872367ed8e41371\n"
         "packages:\n"
         "  base:\n"
         "    description: Universal coding conventions\n"
@@ -164,6 +165,7 @@ def registry_repo(tmp_path: Path) -> tuple[Path, Path]:
 
     # Update registry.yaml to include session-mgmt
     (work / "registry.yaml").write_text(
+        "id: 7348a577b60f490ba872367ed8e41371\n"
         "packages:\n"
         "  base:\n"
         "    description: Universal coding conventions\n"
@@ -264,6 +266,7 @@ def _create_registry_content(dest: Path) -> None:
 
     # registry.yaml
     (dest / "registry.yaml").write_text(
+        "id: 7348a577b60f490ba872367ed8e41371\n"
         "packages:\n"
         "  base:\n"
         "    description: Universal coding conventions\n"
@@ -384,6 +387,7 @@ def second_registry_repo(tmp_path: Path) -> tuple[Path, Path]:
 
     # Create registry.yaml
     (work / "registry.yaml").write_text(
+        "id: 8512b48c8a9b44a7a2c2ece8e6201279\n"
         "packages:\n"
         "  internal-rules:\n"
         "    description: Company internal coding rules\n"
@@ -436,6 +440,7 @@ def _create_second_registry_content(dest: Path) -> None:
     (cs_dir / "standards.md").write_text("# Standards\nFollow the company handbook.\n")
 
     (dest / "registry.yaml").write_text(
+        "id: 8512b48c8a9b44a7a2c2ece8e6201279\n"
         "packages:\n"
         "  internal-rules:\n"
         "    description: Company internal coding rules\n"

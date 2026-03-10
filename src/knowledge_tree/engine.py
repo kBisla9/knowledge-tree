@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import shutil
-import uuid
 import warnings
 from pathlib import Path
 from typing import ClassVar
@@ -116,6 +115,24 @@ class KnowledgeTreeEngine:
             registries[reg_source.name] = self._load_registry(reg_source.name)
         return registries
 
+    def _resolve_registry_id(self, registry: Registry, config: ProjectConfig | None = None) -> str:
+        """Return the canonical ID from registry.yaml.
+
+        Validates the ID format and checks for collision with existing registries.
+        Raises ValueError if the ID is missing, invalid, or collides.
+        """
+        errors = registry.validate_id()
+        if errors:
+            raise ValueError(f"Invalid registry: {'; '.join(errors)}")
+        if config is not None:
+            existing = config.get_registry_by_id(registry.id)
+            if existing is not None:
+                raise ValueError(
+                    f"Registry id '{registry.id}' collides with existing "
+                    f"registry '{existing.name}' ({existing.source})."
+                )
+        return registry.id
+
     def _get_current_ref(self, reg_source: RegistrySource) -> str:
         """Get the current ref for a registry, based on backend type."""
         cache_dir = self._registry_cache_dir(reg_source.name)
@@ -189,7 +206,8 @@ class KnowledgeTreeEngine:
             shutil.rmtree(self.knowledge_tree_dir, ignore_errors=True)
             raise
 
-        reg_id = uuid.uuid4().hex[:8]
+        registry = self._load_registry(registry_name)
+        reg_id = self._resolve_registry_id(registry)
         reg = RegistrySource(
             id=reg_id,
             name=registry_name,
@@ -203,7 +221,6 @@ class KnowledgeTreeEngine:
         )
         config.to_yaml_file(self.config_path)
 
-        registry = self._load_registry(registry_name)
         return sorted(registry.packages.keys())
 
     # ------------------------------------------------------------------
@@ -267,7 +284,8 @@ class KnowledgeTreeEngine:
                 source_type=source_type,
             )
 
-            reg_id = uuid.uuid4().hex[:8]
+            registry_obj = self._load_registry(name)
+            reg_id = self._resolve_registry_id(registry_obj, config)
             reg = RegistrySource(
                 id=reg_id,
                 name=name,
@@ -387,7 +405,8 @@ class KnowledgeTreeEngine:
                 source_type=source_type,
             )
 
-            reg_id = uuid.uuid4().hex[:8]
+            registry_obj = self._load_registry(name)
+            reg_id = self._resolve_registry_id(registry_obj, config)
             reg = RegistrySource(
                 id=reg_id,
                 name=name,
@@ -1072,6 +1091,34 @@ class KnowledgeTreeEngine:
             md_files = list(package_path.rglob("*.md"))
             if not md_files:
                 warn_list.append("No content list in package.yaml and no .md files found")
+
+        return ValidateResult(
+            valid=len(errors) == 0,
+            errors=errors,
+            warnings=warn_list,
+        )
+
+    # ------------------------------------------------------------------
+    # validate_registry
+    # ------------------------------------------------------------------
+
+    def validate_registry(self, registry_path: Path) -> ValidateResult:
+        """Validate a registry.yaml at the given path."""
+        errors: list[str] = []
+        warn_list: list[str] = []
+
+        yaml_path = registry_path / "registry.yaml"
+        if not yaml_path.exists():
+            errors.append("Missing registry.yaml")
+            return ValidateResult(valid=False, errors=errors, warnings=warn_list)
+
+        try:
+            reg = Registry.from_yaml_file(yaml_path)
+        except ValueError as exc:
+            errors.append(f"Invalid registry.yaml: {exc}")
+            return ValidateResult(valid=False, errors=errors, warnings=warn_list)
+
+        errors.extend(reg.validate_id())
 
         return ValidateResult(
             valid=len(errors) == 0,

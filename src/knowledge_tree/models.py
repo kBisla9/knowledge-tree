@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -12,6 +11,14 @@ from knowledge_tree._yaml_helpers import load_yaml, save_yaml
 # Valid package name: lowercase letters, digits, hyphens. Must start with letter.
 # Examples: "base", "git-conventions", "cloud-aws-lambda"
 PACKAGE_NAME_RE = re.compile(r"^[a-z][a-z0-9]*(-[a-z0-9]+)*$")
+
+_UUID_HEX_RE = re.compile(r"^[0-9a-f]{32}$")
+
+
+def _is_valid_uuid_hex(value: str) -> bool:
+    """Check if value is a valid 32-char lowercase hex UUID."""
+    return bool(_UUID_HEX_RE.match(value))
+
 
 VALID_CLASSIFICATIONS = {"evergreen", "seasonal"}
 VALID_CONTENT_TYPES = {"knowledge", "skills"}
@@ -304,6 +311,7 @@ class RegistryEntry:
 class Registry:
     """The full registry index, loaded from registry.yaml."""
 
+    id: str = ""  # canonical UUID hex (32 chars), declared by registry author
     packages: dict[str, RegistryEntry] = field(default_factory=dict)
     templates: list[TemplateMapping] = field(default_factory=list)
 
@@ -336,11 +344,13 @@ class Registry:
                     )
                 )
 
-        return cls(packages=packages, templates=templates)
+        return cls(id=data.get("id", ""), packages=packages, templates=templates)
 
     def to_yaml_file(self, path: Path) -> None:
         """Save this Registry to registry.yaml."""
         data: dict = {}
+        if self.id:
+            data["id"] = self.id
         if self.templates:
             data["templates"] = [{"source": t.source, "dest": t.dest} for t in self.templates]
         packages_data: dict = {}
@@ -458,6 +468,18 @@ class Registry:
                 depends_on=list(meta.depends_on),
             )
 
+    def validate_id(self) -> list[str]:
+        """Validate the registry id. Returns list of error strings."""
+        errors: list[str] = []
+        if not self.id:
+            errors.append("'id' is required in registry.yaml")
+        elif not _is_valid_uuid_hex(self.id):
+            errors.append(
+                f"Invalid registry id '{self.id}'. "
+                "Must be a 32-character lowercase hex string (UUID)."
+            )
+        return errors
+
     def find_similar_names(self, name: str, threshold: int = 2) -> list[str]:
         """Return package names within edit distance threshold of name."""
         similar: list[tuple[int, str]] = []
@@ -492,7 +514,7 @@ class InstalledPackage:
 class RegistrySource:
     """A named registry source configuration."""
 
-    id: str = ""  # UUID hex (8 chars), auto-generated
+    id: str = ""  # UUID hex (32 chars from registry.yaml)
     name: str = ""  # user-chosen display name (kebab-case)
     source: str = ""  # URL, directory path, or archive path
     ref: str = ""  # branch for git, empty for local/archive
@@ -547,7 +569,7 @@ class ProjectConfig:
             for reg_data in data["registries"]:
                 registries.append(
                     RegistrySource(
-                        id=reg_data.get("id", uuid.uuid4().hex[:8]),
+                        id=reg_data.get("id", ""),
                         name=reg_data.get("name", "default"),
                         source=reg_data.get("source", ""),
                         ref=reg_data.get("ref", ""),
@@ -556,10 +578,9 @@ class ProjectConfig:
                 )
         elif data.get("registry"):
             # Old format: migrate to single "default" registry
-            reg_id = uuid.uuid4().hex[:8]
             registries.append(
                 RegistrySource(
-                    id=reg_id,
+                    id="",
                     name="default",
                     source=data["registry"],
                     ref=data.get("registry_ref", "main"),

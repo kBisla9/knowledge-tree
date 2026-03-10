@@ -91,6 +91,7 @@ def wire_registry_repo(tmp_path: Path) -> tuple[Path, Path]:
 
     # registry.yaml (templates at registry level, with gitignore)
     (work / "registry.yaml").write_text(
+        "id: a55b733316084582916ceff790a54a66\n"
         "gitignore:\n"
         "  - agent-session-management/\n"
         "templates:\n"
@@ -750,6 +751,7 @@ def roo_wire_registry_repo(tmp_path: Path) -> tuple[Path, Path]:
 
     # registry.yaml
     (work / "registry.yaml").write_text(
+        "id: 3fd18d9fa29f48c789a3715622fbcbdb\n"
         "packages:\n"
         "  core:\n"
         "    description: Session management\n"

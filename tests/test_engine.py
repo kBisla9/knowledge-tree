@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from knowledge_tree.engine import KnowledgeTreeEngine
+from knowledge_tree.models import ProjectConfig
 
 
 def _run_git(args: list[str], cwd: Path) -> str:
@@ -1134,6 +1135,143 @@ class TestMultiRegistry:
         engine, _ = multi_project
         with pytest.raises(ValueError, match="already exists"):
             engine.add_registry("/tmp/fake", name="internal")
+
+
+# ---------------------------------------------------------------------------
+# Canonical registry ID
+# ---------------------------------------------------------------------------
+
+
+class TestCanonicalRegistryId:
+    def test_init_uses_canonical_id(self, registry_repo, tmp_path):
+        """init() should read the id from registry.yaml."""
+        bare, _ = registry_repo
+        project = tmp_path / "proj"
+        project.mkdir()
+        engine = KnowledgeTreeEngine(project)
+        engine.init(str(bare), branch="main")
+
+        config = ProjectConfig.from_yaml_file(project / ".knowledge-tree" / "kt.yaml")
+        assert config.registries[0].id == "7348a577b60f490ba872367ed8e41371"
+
+    def test_add_registry_uses_canonical_id(self, registry_repo, tmp_path):
+        """add_registry() should read the id from registry.yaml."""
+        bare, _ = registry_repo
+        project = tmp_path / "proj"
+        project.mkdir()
+        engine = KnowledgeTreeEngine(project)
+        engine.init()
+        engine.add_registry(str(bare), name="test-reg", branch="main", install_packages=False)
+
+        config = ProjectConfig.from_yaml_file(project / ".knowledge-tree" / "kt.yaml")
+        reg = config.get_registry("test-reg")
+        assert reg is not None
+        assert reg.id == "7348a577b60f490ba872367ed8e41371"
+
+    def test_preview_uses_canonical_id(self, registry_repo, tmp_path):
+        """preview_registry() should read the id from registry.yaml."""
+        bare, _ = registry_repo
+        project = tmp_path / "proj"
+        project.mkdir()
+        engine = KnowledgeTreeEngine(project)
+        engine.init()
+        engine.preview_registry(str(bare), name="test-reg", branch="main")
+
+        config = ProjectConfig.from_yaml_file(project / ".knowledge-tree" / "kt.yaml")
+        reg = config.get_registry("test-reg")
+        assert reg is not None
+        assert reg.id == "7348a577b60f490ba872367ed8e41371"
+
+    def test_missing_id_raises(self, tmp_path):
+        """Registry without id field should be rejected."""
+        project = tmp_path / "proj"
+        project.mkdir()
+        engine = KnowledgeTreeEngine(project)
+
+        # Create a registry dir with no id in registry.yaml
+        reg_dir = tmp_path / "no-id-registry"
+        reg_dir.mkdir()
+        pkg_dir = reg_dir / "packages" / "example"
+        pkg_dir.mkdir(parents=True)
+        (pkg_dir / "package.yaml").write_text(
+            "name: example\ndescription: Test\nauthors:\n  - Test\n"
+        )
+        (pkg_dir / "content.md").write_text("# Content\n")
+        (reg_dir / "registry.yaml").write_text(
+            "packages:\n  example:\n    description: Test\n    path: packages/example\n"
+        )
+
+        with pytest.raises(ValueError, match="'id' is required"):
+            engine.init(str(reg_dir))
+
+    def test_invalid_id_raises(self, tmp_path):
+        """Registry with non-UUID id should be rejected."""
+        project = tmp_path / "proj"
+        project.mkdir()
+        engine = KnowledgeTreeEngine(project)
+
+        reg_dir = tmp_path / "bad-id-registry"
+        reg_dir.mkdir()
+        pkg_dir = reg_dir / "packages" / "example"
+        pkg_dir.mkdir(parents=True)
+        (pkg_dir / "package.yaml").write_text(
+            "name: example\ndescription: Test\nauthors:\n  - Test\n"
+        )
+        (pkg_dir / "content.md").write_text("# Content\n")
+        (reg_dir / "registry.yaml").write_text(
+            "id: not-a-valid-uuid\n"
+            "packages:\n"
+            "  example:\n"
+            "    description: Test\n"
+            "    path: packages/example\n"
+        )
+
+        with pytest.raises(ValueError, match="32-character lowercase hex"):
+            engine.init(str(reg_dir))
+
+    def test_id_collision_raises(self, registry_repo, second_registry_repo, tmp_path):
+        """Two registries with the same id should error on second add."""
+        bare, _ = registry_repo
+        bare2, work2 = second_registry_repo
+
+        # Overwrite second registry to use the same id as the first
+        import subprocess
+
+        (work2 / "registry.yaml").write_text(
+            "id: 7348a577b60f490ba872367ed8e41371\n"
+            "packages:\n"
+            "  internal-rules:\n"
+            "    description: Company internal coding rules\n"
+            "    classification: evergreen\n"
+            "    path: packages/internal-rules\n"
+        )
+        subprocess.run(["git", "add", "."], cwd=work2, capture_output=True)
+        subprocess.run(
+            ["git", "commit", "-m", "Use colliding id"],
+            cwd=work2,
+            capture_output=True,
+        )
+        subprocess.run(["git", "push", "origin", "main"], cwd=work2, capture_output=True)
+
+        project = tmp_path / "proj"
+        project.mkdir()
+        engine = KnowledgeTreeEngine(project)
+        engine.init(str(bare), branch="main")
+
+        with pytest.raises(ValueError, match="collides with existing"):
+            engine.add_registry(str(bare2), branch="main", name="internal")
+
+    def test_packages_use_canonical_id(self, registry_repo, tmp_path):
+        """Installed packages should reference the canonical registry id."""
+        bare, _ = registry_repo
+        project = tmp_path / "proj"
+        project.mkdir()
+        engine = KnowledgeTreeEngine(project)
+        engine.init(str(bare), branch="main")
+        engine.add_package("base")
+
+        config = ProjectConfig.from_yaml_file(project / ".knowledge-tree" / "kt.yaml")
+        assert config.packages[0].registry == "7348a577b60f490ba872367ed8e41371"
 
 
 # ---------------------------------------------------------------------------

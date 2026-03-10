@@ -446,6 +446,60 @@ class TestRegistry:
 
 
 # ---------------------------------------------------------------------------
+# Registry ID validation
+# ---------------------------------------------------------------------------
+
+
+class TestRegistryId:
+    def test_valid_uuid_hex(self):
+        reg = Registry(id="a3f7b2c19e4d4a8fb1234567890abcde")
+        assert reg.validate_id() == []
+
+    def test_missing_id(self):
+        reg = Registry(id="")
+        errors = reg.validate_id()
+        assert any("required" in e for e in errors)
+
+    def test_too_short(self):
+        reg = Registry(id="abc123")
+        errors = reg.validate_id()
+        assert any("32-character" in e for e in errors)
+
+    def test_uppercase_rejected(self):
+        reg = Registry(id="A3F7B2C19E4D4A8FB1234567890ABCDE")
+        errors = reg.validate_id()
+        assert any("32-character" in e for e in errors)
+
+    def test_non_hex_rejected(self):
+        reg = Registry(id="g348a577b60f490ba872367ed8e41371")
+        errors = reg.validate_id()
+        assert any("32-character" in e for e in errors)
+
+    def test_yaml_round_trip_with_id(self, tmp_path):
+        path = tmp_path / "registry.yaml"
+        reg = Registry(
+            id="a3f7b2c19e4d4a8fb1234567890abcde",
+            packages={
+                "base": RegistryEntry(description="Test", path="packages/base"),
+            },
+        )
+        reg.to_yaml_file(path)
+        loaded = Registry.from_yaml_file(path)
+        assert loaded.id == "a3f7b2c19e4d4a8fb1234567890abcde"
+
+    def test_yaml_round_trip_without_id(self, tmp_path):
+        path = tmp_path / "registry.yaml"
+        reg = Registry(
+            packages={
+                "base": RegistryEntry(description="Test", path="packages/base"),
+            },
+        )
+        reg.to_yaml_file(path)
+        loaded = Registry.from_yaml_file(path)
+        assert loaded.id == ""
+
+
+# ---------------------------------------------------------------------------
 # RegistrySource
 # ---------------------------------------------------------------------------
 
@@ -687,7 +741,7 @@ class TestProjectConfig:
         assert config.registries[0].source == "https://example.com/registry.git"
         assert config.registries[0].ref == "v1"
         assert config.registries[0].type == "git"
-        assert config.registries[0].id != ""  # auto-generated UUID
+        assert config.registries[0].id == ""  # no ID in legacy format
         # Packages should be assigned to the default registry
         assert len(config.packages) == 1
         assert config.packages[0].registry == config.registries[0].id
