@@ -147,7 +147,6 @@ class TestPackageMetadata:
         path = tmp_path / "package.yaml"
         meta = self._valid_meta(
             tags=["testing", "core"],
-            depends_on=["base"],
             parent="root",
             created="2026-01-01",
             updated="2026-02-01",
@@ -163,7 +162,6 @@ class TestPackageMetadata:
         assert loaded.authors == meta.authors
         assert loaded.classification == meta.classification
         assert loaded.tags == meta.tags
-        assert loaded.depends_on == meta.depends_on
         assert loaded.parent == meta.parent
         assert loaded.created == meta.created
         assert loaded.updated == meta.updated
@@ -183,7 +181,6 @@ class TestPackageMetadata:
 
         # These should be absent (None or empty list)
         assert "parent" not in data
-        assert "depends_on" not in data
         assert "suggests" not in data
         assert "tags" not in data
         assert "status" not in data
@@ -198,7 +195,6 @@ class TestPackageMetadata:
         assert meta.authors == []
         assert meta.classification == "seasonal"
         assert meta.parent is None
-        assert meta.depends_on == []
         assert meta.status is None
 
     def test_multiple_validation_errors(self):
@@ -220,7 +216,7 @@ class TestRegistryEntry:
         assert entry.tags == []
         assert entry.path == ""
         assert entry.parent is None
-        assert entry.depends_on == []
+        assert entry.parent is None
 
 
 # ---------------------------------------------------------------------------
@@ -250,7 +246,7 @@ def _sample_registry() -> Registry:
                 classification="seasonal",
                 tags=["api", "rest"],
                 path="packages/api-patterns",
-                depends_on=["base"],
+                parent="base",
             ),
         }
     )
@@ -265,7 +261,7 @@ class TestRegistry:
 
         assert set(loaded.packages.keys()) == {"base", "git-conventions", "api-patterns"}
         assert loaded.packages["base"].description == "Universal coding conventions"
-        assert loaded.packages["api-patterns"].depends_on == ["base"]
+        assert loaded.packages["api-patterns"].parent == "base"
         assert loaded.packages["git-conventions"].parent == "base"
 
     def test_search_exact_name(self):
@@ -308,73 +304,98 @@ class TestRegistry:
     def test_get_children(self):
         reg = _sample_registry()
         children = reg.get_children("base")
-        assert children == ["git-conventions"]
+        assert sorted(children) == ["api-patterns", "git-conventions"]
 
     def test_get_children_none(self):
         reg = _sample_registry()
         children = reg.get_children("api-patterns")
         assert children == []
 
-    def test_resolve_dependency_chain_no_deps(self):
+    def test_resolve_ancestor_chain_root(self):
         reg = _sample_registry()
-        chain = reg.resolve_dependency_chain("base")
+        chain = reg.resolve_ancestor_chain("base")
         assert chain == ["base"]
 
-    def test_resolve_dependency_chain_simple(self):
+    def test_resolve_ancestor_chain_simple(self):
         reg = _sample_registry()
-        chain = reg.resolve_dependency_chain("api-patterns")
+        chain = reg.resolve_ancestor_chain("api-patterns")
         assert chain == ["base", "api-patterns"]
 
-    def test_resolve_dependency_chain_transitive(self):
+    def test_resolve_ancestor_chain_deep(self):
         reg = _sample_registry()
-        # Add a package that depends on api-patterns (which depends on base)
+        # Add a package with parent: api-patterns (which has parent: base)
         reg.packages["advanced-api"] = RegistryEntry(
             description="Advanced API patterns",
             classification="seasonal",
-            depends_on=["api-patterns"],
+            parent="api-patterns",
         )
-        chain = reg.resolve_dependency_chain("advanced-api")
+        chain = reg.resolve_ancestor_chain("advanced-api")
         assert chain == ["base", "api-patterns", "advanced-api"]
 
-    def test_resolve_dependency_chain_circular(self):
+    def test_resolve_ancestor_chain_circular(self):
         reg = Registry(
             packages={
-                "a": RegistryEntry(depends_on=["b"]),
-                "b": RegistryEntry(depends_on=["a"]),
+                "a": RegistryEntry(parent="b"),
+                "b": RegistryEntry(parent="a"),
             }
         )
-        with pytest.raises(ValueError, match="Circular dependency"):
-            reg.resolve_dependency_chain("a")
+        with pytest.raises(ValueError, match="Circular parent chain"):
+            reg.resolve_ancestor_chain("a")
 
-    def test_resolve_dependency_chain_missing_package(self):
+    def test_resolve_ancestor_chain_missing_package(self):
         reg = _sample_registry()
         with pytest.raises(ValueError, match="not found"):
-            reg.resolve_dependency_chain("nonexistent")
+            reg.resolve_ancestor_chain("nonexistent")
 
-    def test_resolve_dependency_chain_missing_dep(self):
+    def test_resolve_ancestor_chain_missing_parent(self):
         reg = Registry(
             packages={
-                "a": RegistryEntry(depends_on=["missing"]),
+                "a": RegistryEntry(parent="missing"),
             }
         )
         with pytest.raises(ValueError, match="not found"):
-            reg.resolve_dependency_chain("a")
+            reg.resolve_ancestor_chain("a")
 
-    def test_resolve_missing_dep_with_suggestion(self):
-        """Transitive dependency 'bse' (typo for 'base') should suggest 'base'."""
+    def test_resolve_ancestor_chain_parent_typo_suggestion(self):
+        """Parent 'bse' (typo for 'base') should suggest 'base'."""
         reg = Registry(
             packages={
                 "base": RegistryEntry(),
-                "child": RegistryEntry(depends_on=["bse"]),
+                "child": RegistryEntry(parent="bse"),
             }
         )
         with pytest.raises(ValueError, match=r"Did you mean.*base"):
-            reg.resolve_dependency_chain("child")
+            reg.resolve_ancestor_chain("child")
 
-    def test_resolve_missing_with_suggestion(self):
+    def test_resolve_ancestor_chain_missing_with_suggestion(self):
         reg = _sample_registry()
         with pytest.raises(ValueError, match="Did you mean"):
-            reg.resolve_dependency_chain("bse")  # close to "base"
+            reg.resolve_ancestor_chain("bse")  # close to "base"
+
+    def test_validate_tree_valid(self):
+        reg = _sample_registry()
+        assert reg.validate_tree() == []
+
+    def test_validate_tree_missing_parent(self):
+        reg = Registry(
+            packages={
+                "child": RegistryEntry(parent="nonexistent"),
+            }
+        )
+        errors = reg.validate_tree()
+        assert len(errors) == 1
+        assert "nonexistent" in errors[0]
+
+    def test_validate_tree_cycle(self):
+        reg = Registry(
+            packages={
+                "a": RegistryEntry(parent="b"),
+                "b": RegistryEntry(parent="a"),
+            }
+        )
+        errors = reg.validate_tree()
+        assert len(errors) == 1
+        assert "Circular" in errors[0]
 
     def test_find_similar_names(self):
         reg = _sample_registry()
@@ -396,8 +417,7 @@ class TestRegistry:
             authors=["Bob"],
             classification="evergreen",
             tags=["testing"],
-            parent=None,
-            depends_on=["base"],
+            parent="base",
         )
         meta.to_yaml_file(pkg_dir / "package.yaml")
 
@@ -410,7 +430,7 @@ class TestRegistry:
         assert entry.classification == "evergreen"
         assert entry.tags == ["testing"]
         assert entry.path == "packages/test-pkg"
-        assert entry.depends_on == ["base"]
+        assert entry.parent == "base"
 
     def test_rebuild_skips_non_directories(self, tmp_path):
         pkg_dir = tmp_path / "packages"

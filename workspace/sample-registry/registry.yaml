@@ -8,8 +8,7 @@ packages:
       - rest
       - authentication
     path: packages/api-patterns
-    depends_on:
-      - base
+    parent: base
   base:
     description: Universal coding conventions and safe practices
     classification: evergreen

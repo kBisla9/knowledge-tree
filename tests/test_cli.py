@@ -257,7 +257,7 @@ class TestRemove:
         assert "base" in result.output
         assert "Removed base" in result.output
 
-    def test_remove_with_dependents(self, cli_project):
+    def test_remove_warns_about_children(self, cli_project):
         runner, _, _ = cli_project
         runner.invoke(cli, ["add", "api-patterns"])
         result = runner.invoke(cli, ["remove", "base"])

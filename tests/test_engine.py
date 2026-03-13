@@ -162,7 +162,7 @@ class TestAddPackage:
         engine, _project = initialized_project
         result = engine.add_package("api-patterns")
 
-        # base is a dependency of api-patterns
+        # base is the parent of api-patterns
         assert "base" in result.installed
         assert "api-patterns" in result.installed
 
@@ -267,7 +267,7 @@ class TestRemovePackage:
         with pytest.raises(ValueError, match="not installed"):
             engine.remove_package("nonexistent")
 
-    def test_remove_warns_if_depended_on(
+    def test_remove_warns_about_children(
         self, initialized_project: tuple[KnowledgeTreeEngine, Path]
     ):
         engine, _ = initialized_project
@@ -275,7 +275,7 @@ class TestRemovePackage:
         result = engine.remove_package("base")
 
         assert result.removed is True
-        assert "api-patterns" in result.dependents
+        assert "api-patterns" in result.children
 
 
 # ---------------------------------------------------------------------------
@@ -454,14 +454,15 @@ class TestGetTreeData:
         data = engine.get_tree_data()
 
         root_names = [n.name for n in data.roots]
-        # base and api-patterns are roots, git-conventions is child of base
+        # base and session-mgmt are roots; git-conventions and api-patterns are children of base
         assert "base" in root_names
-        assert "api-patterns" in root_names
+        assert "session-mgmt" in root_names
+        assert "api-patterns" not in root_names
         assert "git-conventions" not in root_names
 
         base_node = next(n for n in data.roots if n.name == "base")
-        child_names = [c.name for c in base_node.children]
-        assert "git-conventions" in child_names
+        child_names = sorted(c.name for c in base_node.children)
+        assert child_names == ["api-patterns", "git-conventions"]
 
 
 # ---------------------------------------------------------------------------
@@ -503,7 +504,7 @@ class TestGetInfo:
         assert info.name == "base"
         assert info.installed is True
         assert len(info.files) > 0
-        assert info.children == ["git-conventions"]
+        assert sorted(info.children) == ["api-patterns", "git-conventions"]
         assert info.registry == "default"
 
     def test_info_not_installed(self, initialized_project: tuple[KnowledgeTreeEngine, Path]):
@@ -776,16 +777,6 @@ class TestRegistryRebuild:
 
         assert count == 4  # base, git-conventions, api-patterns, session-mgmt
         assert (work / "registry.yaml").exists()
-
-    def test_rebuild_preserves_dependencies(self, registry_repo: tuple[Path, Path]):
-        _, work = registry_repo
-        engine = KnowledgeTreeEngine(work)
-        engine.registry_rebuild(work)
-
-        from knowledge_tree.models import Registry
-
-        registry = Registry.from_yaml_file(work / "registry.yaml")
-        assert "base" in registry.packages["api-patterns"].depends_on
 
     def test_rebuild_preserves_parent(self, registry_repo: tuple[Path, Path]):
         _, work = registry_repo

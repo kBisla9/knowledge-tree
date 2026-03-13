@@ -107,7 +107,7 @@ def registry_repo(tmp_path: Path) -> tuple[Path, Path]:
         "description: REST API patterns and auth\n"
         "authors:\n  - Test Author\n"
         "classification: seasonal\n"
-        "depends_on:\n  - base\n"
+        "parent: base\n"
         "tags:\n  - api\n  - rest\n"
         "content:\n  - rest-conventions.md\n  - authentication.md\n"
     )
@@ -136,7 +136,7 @@ def registry_repo(tmp_path: Path) -> tuple[Path, Path]:
         "    classification: seasonal\n"
         "    tags:\n      - api\n      - rest\n"
         "    path: packages/api-patterns\n"
-        "    depends_on:\n      - base\n"
+        "    parent: base\n"
     )
 
     # Create packages/session-mgmt/ (with subdirectories)
@@ -183,7 +183,7 @@ def registry_repo(tmp_path: Path) -> tuple[Path, Path]:
         "    classification: seasonal\n"
         "    tags:\n      - api\n      - rest\n"
         "    path: packages/api-patterns\n"
-        "    depends_on:\n      - base\n"
+        "    parent: base\n"
         "  session-mgmt:\n"
         "    description: Session management with subdirectories\n"
         "    classification: evergreen\n"
@@ -236,7 +236,7 @@ def _create_registry_content(dest: Path) -> None:
         "description: REST API patterns and auth\n"
         "authors:\n  - Test Author\n"
         "classification: seasonal\n"
-        "depends_on:\n  - base\n"
+        "parent: base\n"
         "tags:\n  - api\n  - rest\n"
         "content:\n  - rest-conventions.md\n  - authentication.md\n"
     )
@@ -284,7 +284,7 @@ def _create_registry_content(dest: Path) -> None:
         "    classification: seasonal\n"
         "    tags:\n      - api\n      - rest\n"
         "    path: packages/api-patterns\n"
-        "    depends_on:\n      - base\n"
+        "    parent: base\n"
         "  session-mgmt:\n"
         "    description: Session management with subdirectories\n"
         "    classification: evergreen\n"
@@ -380,7 +380,7 @@ def second_registry_repo(tmp_path: Path) -> tuple[Path, Path]:
         "description: Company-wide development standards\n"
         "authors:\n  - Standards Team\n"
         "classification: seasonal\n"
-        "depends_on:\n  - internal-rules\n"
+        "parent: internal-rules\n"
         "tags:\n  - company\n  - standards\n"
     )
     (cs_dir / "standards.md").write_text("# Standards\nFollow the company handbook.\n")
@@ -399,7 +399,7 @@ def second_registry_repo(tmp_path: Path) -> tuple[Path, Path]:
         "    classification: seasonal\n"
         "    tags:\n      - company\n      - standards\n"
         "    path: packages/company-standards\n"
-        "    depends_on:\n      - internal-rules\n"
+        "    parent: internal-rules\n"
     )
 
     # Create community/.gitkeep
@@ -434,7 +434,7 @@ def _create_second_registry_content(dest: Path) -> None:
         "description: Company-wide development standards\n"
         "authors:\n  - Standards Team\n"
         "classification: seasonal\n"
-        "depends_on:\n  - internal-rules\n"
+        "parent: internal-rules\n"
         "tags:\n  - company\n  - standards\n"
     )
     (cs_dir / "standards.md").write_text("# Standards\nFollow the company handbook.\n")
@@ -452,7 +452,7 @@ def _create_second_registry_content(dest: Path) -> None:
         "    classification: seasonal\n"
         "    tags:\n      - company\n      - standards\n"
         "    path: packages/company-standards\n"
-        "    depends_on:\n      - internal-rules\n"
+        "    parent: internal-rules\n"
     )
 
 

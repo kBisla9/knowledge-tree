@@ -453,7 +453,7 @@ class KnowledgeTreeEngine:
                     classification=entry.classification or "seasonal",
                     content_type=content_type,
                     tags=list(entry.tags),
-                    depends_on=list(entry.depends_on),
+                    parent=entry.parent,
                 )
             )
 
@@ -560,7 +560,7 @@ class KnowledgeTreeEngine:
 
         registry = all_registries[target_reg_name]
         reg_source = config.get_registry(target_reg_name)
-        chain = registry.resolve_dependency_chain(package_name)
+        chain = registry.resolve_ancestor_chain(package_name)
 
         installed_names = config.get_installed_names()
         newly_installed: list[str] = []
@@ -637,18 +637,13 @@ class KnowledgeTreeEngine:
         pkg_reg_source = config.get_registry_by_id(pkg_reg_id) if pkg_reg_id else None
         pkg_reg_name = pkg_reg_source.name if pkg_reg_source else "default"
 
-        # Check what other installed packages depend on this one
-        dependents = []
-        for pkg in config.packages:
-            if pkg.name == package_name:
-                continue
-            pkg_source = config.get_registry_by_id(pkg.registry)
-            if pkg_source:
-                reg = all_registries.get(pkg_source.name)
-                if reg:
-                    entry = reg.packages.get(pkg.name)
-                    if entry and package_name in entry.depends_on:
-                        dependents.append(pkg.name)
+        # Check if any installed children exist
+        installed_children = []
+        reg = all_registries.get(pkg_reg_name)
+        if reg:
+            for child_name in reg.get_children(package_name):
+                if child_name in config.get_installed_names():
+                    installed_children.append(child_name)
 
         # Clean up any exports for this package
         exported_formats: list[str] = []
@@ -670,7 +665,7 @@ class KnowledgeTreeEngine:
         config.remove_package(package_name)
         config.to_yaml_file(self.config_path)
 
-        return RemoveResult(removed=True, dependents=dependents, unexported=exported_formats)
+        return RemoveResult(removed=True, children=installed_children, unexported=exported_formats)
 
     # ------------------------------------------------------------------
     # update
@@ -1023,8 +1018,8 @@ class KnowledgeTreeEngine:
                 pass
 
         children = target_registry.get_children(package_name)
-        deps = target_registry.resolve_dependency_chain(package_name)
-        deps.remove(package_name)  # remove self
+        ancestors = target_registry.resolve_ancestor_chain(package_name)
+        ancestors.remove(package_name)  # remove self
 
         # Export status
         export_formats = [exp.format for exp in config.exports if exp.name == package_name]
@@ -1035,9 +1030,8 @@ class KnowledgeTreeEngine:
             classification=entry.classification,
             tags=entry.tags,
             parent=entry.parent,
-            depends_on=entry.depends_on,
             children=children,
-            transitive_deps=deps,
+            ancestors=ancestors,
             installed=is_installed,
             ref=config.get_package_ref(package_name) or "",
             files=files_info,
@@ -1134,6 +1128,7 @@ class KnowledgeTreeEngine:
             return ValidateResult(valid=False, errors=errors, warnings=warn_list)
 
         errors.extend(reg.validate_id())
+        errors.extend(reg.validate_tree())
 
         return ValidateResult(
             valid=len(errors) == 0,

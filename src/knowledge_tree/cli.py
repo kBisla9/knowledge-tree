@@ -213,7 +213,7 @@ def init(
 @click.option("--dry-run", is_flag=True, help="Show what would be installed without installing.")
 @_handle_error
 def add(package: str, from_registry: str | None, dry_run: bool):
-    """Install a knowledge package and its dependencies."""
+    """Install a knowledge package and its ancestors."""
     engine = _get_engine()
 
     with console.status(f"{'Resolving' if dry_run else 'Installing'} {package}..."):
@@ -280,13 +280,13 @@ def remove(package: str):
         for fmt in result.unexported:
             console.print(f"  [dim]Cleaned up {fmt} export[/dim]")
 
-    if result.dependents:
+    if result.children:
         console.print(
             f"\n[yellow]Warning:[/yellow] The following installed packages "
-            f"depend on [bold]{package}[/bold]:"
+            f"are children of [bold]{package}[/bold]:"
         )
-        for dep in result.dependents:
-            console.print(f"  - {dep}")
+        for child in result.children:
+            console.print(f"  - {child}")
         console.print("[dim]Consider removing them or re-adding this package.[/dim]")
 
     console.print(f"\n[green]Removed {package}.[/green]")
@@ -525,12 +525,10 @@ def info(package: str):
         lines.append(f"Tags: {', '.join(data.tags)}")
     if data.parent:
         lines.append(f"Parent: {data.parent}")
-    if data.depends_on:
-        lines.append(f"Dependencies: {', '.join(data.depends_on)}")
     if data.children:
         lines.append(f"Children: {', '.join(data.children)}")
-    if data.transitive_deps:
-        lines.append(f"Transitive deps: {', '.join(data.transitive_deps)}")
+    if data.ancestors:
+        lines.append(f"Ancestors: {', '.join(data.ancestors)}")
 
     status_line = (
         f"[green]Installed[/green] (ref: {data.ref})"
@@ -830,13 +828,15 @@ def _select_packages(preview: RegistryPreview) -> list[str] | None:
         console.print("[yellow]No packages selected.[/yellow]")
         return []
 
-    # Auto-add missing dependencies with warning
+    # Auto-add missing ancestors with warning
     for name in list(selected):
         pkg = pkg_map[name]
-        for dep in pkg.depends_on:
-            if dep not in selected and dep in pkg_map:
-                console.print(f"[yellow]Adding '{dep}' (required by '{name}')[/yellow]")
-                selected.add(dep)
+        current = pkg.parent
+        while current and current in pkg_map:
+            if current not in selected:
+                console.print(f"[yellow]Adding '{current}' (ancestor of '{name}')[/yellow]")
+                selected.add(current)
+            current = pkg_map[current].parent
 
     return sorted(selected)
 

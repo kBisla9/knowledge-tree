@@ -16,7 +16,7 @@ AI coding agents (Cursor, Claude Code, Copilot, etc.) are only as good as the co
 
 Knowledge Tree is a CLI tool (`kt`) that manages curated Markdown knowledge packages. Think `npm install`, but for knowledge. You point it at a registry — a git repo, a local directory, or an archive file — install what you need, and the content is automatically exported to your AI tool's native format (Claude Code skills, Roo Code rules) where agents can read it.
 
-Registries are crowdsourced — teams curate packages for coding conventions, API patterns, framework guides, and more. Packages have dependencies, classification (evergreen vs seasonal), and a promotion pipeline from community contributions to curated packages.
+Registries are crowdsourced — teams curate packages for coding conventions, API patterns, framework guides, and more. Packages form a strict tree via `parent` relationships, have classification (evergreen vs seasonal), and a promotion pipeline from community contributions to curated packages.
 
 ## Quick Start
 
@@ -35,7 +35,7 @@ kt registry add https://github.com/your-org/internal-rules.git --name internal
 # 4. Browse available packages
 kt status --available
 
-# 5. Install a package (dependencies auto-install)
+# 5. Install a package (ancestors auto-install)
 kt add api-patterns
 kt add company-standards --from internal  # from a specific registry
 
@@ -45,9 +45,9 @@ kt tree
 
 ```
 🌳 Knowledge Tree
-├── 🌲 base (installed) — Universal coding conventions
-│   └── 🌲 git-conventions — Git commit message standards
-└── 🍂 api-patterns (installed) — REST API patterns and auth
+└── 🌲 base (installed) — Universal coding conventions
+    ├── 🌲 git-conventions — Git commit message standards
+    └── 🍂 api-patterns (installed) — REST API patterns and auth
 ```
 
 Packages are automatically exported to your AI tool's native format (Claude Code, Roo Code) when a format is configured. Share the registry URL with your team — each member runs `kt init <url>` to get the same packages.
@@ -60,9 +60,8 @@ Packages are automatically exported to your AI tool's native format (Claude Code
 
 **Evergreen vs Seasonal** — Packages are classified as *evergreen* (stable conventions, long-term relevance) or *seasonal* (experimental, trend-based, may change). `kt update` notifies you about new evergreen packages.
 
-**Relationships** — Three types:
-- `parent` — organizational grouping (shown in `kt tree`)
-- `depends_on` — functional dependency (auto-installed with `kt add`)
+**Relationships** — The registry follows a strict tree structure:
+- `parent` — the sole structural relationship. The tree IS the dependency graph. Installing a child auto-installs its ancestor chain (root → ... → parent → self). Removing a parent warns if installed children exist.
 - `suggests` — optional recommendations (shown in `kt info`)
 
 **Multi-Registry** — Projects can use multiple registries simultaneously. Each registry gets a name (default: "default") and all storage is namespaced by registry. Use `kt registry add/remove` to manage registries and `--from <registry>` on `kt add` when a package exists in multiple registries.
@@ -82,8 +81,8 @@ Use `kt update --format <name>` or `kt update --switch-tool` to change formats (
 | Command | Description |
 |---------|-------------|
 | `kt init [<url>]` | Initialize project; with URL, also adds registry and installs all packages |
-| `kt add <package> [--from <registry>]` | Install a package and its dependencies (auto-exports) |
-| `kt remove <package>` | Remove a package and clean up exports (warns about dependents) |
+| `kt add <package> [--from <registry>]` | Install a package and its ancestors (auto-exports) |
+| `kt remove <package>` | Remove a package and clean up exports (warns about children) |
 | `kt search <query>` | Search by name, description, or tags |
 | `kt tree` | Show hierarchical package tree |
 | `kt update [<package>]` | Pull latest, update installed packages (auto-re-exports) |
@@ -129,7 +128,7 @@ It creates `.knowledge-tree/kt.yaml` (config), installs all packages from the re
 
 **Multi-registry** — Add more registries with `kt registry add <source> --name <name>`. All storage is namespaced by registry name under `.knowledge-tree/registries/<name>/`. If a package name exists in multiple registries, use `kt add <package> --from <registry>` to disambiguate.
 
-**Installing packages** — `kt add` resolves the full dependency chain and auto-exports content directly from the registry cache to your configured tool format (e.g., `.claude/skills/` for Claude Code, `.roo/rules/` for Roo Code). There is no intermediate step — exporters read from cache and write to tool directories.
+**Installing packages** — `kt add` resolves the full ancestor chain (walking `parent` links up to the root) and auto-exports content directly from the registry cache to your configured tool format (e.g., `.claude/skills/` for Claude Code, `.roo/rules/` for Roo Code). There is no intermediate step — exporters read from cache and write to tool directories.
 
 **Updating** — `kt update` refreshes the cache from all registries (git pull, directory re-copy, or archive re-extraction), re-exports all installed packages, and alerts you to new evergreen packages you haven't installed yet.
 
@@ -181,7 +180,7 @@ To distribute a registry without git, you can tar/zip the directory and share th
 
 - **Knowledge packages** — See `CONTRIBUTING.md` in your registry for contribution guidelines
 - **The `kt` tool** — Fork, branch, PR on [GitHub](https://github.com/kBisla9/knowledge-tree)
-- Test suite: 478 tests using real git repos (no mocking), 91% coverage
+- Test suite: 515 tests using real git repos (no mocking), 90% coverage
 
 ## Development
 

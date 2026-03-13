@@ -100,7 +100,6 @@ class PackageMetadata:
 
     # Optional relationship fields
     parent: str | None = None
-    depends_on: list[str] = field(default_factory=list)
     suggests: list[str] = field(default_factory=list)
     tags: list[str] = field(default_factory=list)
     audience: list[str] = field(default_factory=list)
@@ -210,7 +209,6 @@ class PackageMetadata:
             authors=list(data.get("authors", [])),
             classification=data.get("classification", "seasonal"),
             parent=data.get("parent"),
-            depends_on=list(data.get("depends_on", [])),
             suggests=list(data.get("suggests", [])),
             tags=list(data.get("tags", [])),
             audience=list(data.get("audience", [])),
@@ -238,8 +236,6 @@ class PackageMetadata:
 
         if self.parent is not None:
             data["parent"] = self.parent
-        if self.depends_on:
-            data["depends_on"] = self.depends_on
         if self.suggests:
             data["suggests"] = self.suggests
         if self.tags:
@@ -299,7 +295,6 @@ class RegistryEntry:
     tags: list[str] = field(default_factory=list)
     path: str = ""
     parent: str | None = None
-    depends_on: list[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -330,7 +325,6 @@ class Registry:
                 tags=list(entry_data.get("tags", [])),
                 path=entry_data.get("path", ""),
                 parent=entry_data.get("parent"),
-                depends_on=list(entry_data.get("depends_on", [])),
             )
 
         # Parse registry-level templates
@@ -365,8 +359,6 @@ class Registry:
                 entry_data["path"] = entry.path
             if entry.parent is not None:
                 entry_data["parent"] = entry.parent
-            if entry.depends_on:
-                entry_data["depends_on"] = entry.depends_on
             packages_data[name] = entry_data
         data["packages"] = packages_data
         save_yaml(data, path)
@@ -405,11 +397,11 @@ class Registry:
         """Return names of packages whose parent is package_name."""
         return [name for name, entry in self.packages.items() if entry.parent == package_name]
 
-    def resolve_dependency_chain(self, package_name: str) -> list[str]:
-        """Return topologically-sorted list of transitive dependencies.
+    def resolve_ancestor_chain(self, package_name: str) -> list[str]:
+        """Return the ancestor chain from root down to package_name (inclusive).
 
-        The list ends with package_name itself.
-        Raises ValueError on circular dependency or missing package.
+        Walks parent links upward, then reverses so root comes first.
+        Raises ValueError on circular parent chain or missing package/parent.
         """
         if package_name not in self.packages:
             similar = self.find_similar_names(package_name)
@@ -418,31 +410,51 @@ class Registry:
                 msg += f" Did you mean: {', '.join(similar)}?"
             raise ValueError(msg)
 
-        visited: set[str] = set()
-        stack: set[str] = set()  # for cycle detection
         chain: list[str] = []
+        seen: set[str] = set()
+        current = package_name
 
-        def _resolve(name: str) -> None:
-            if name in stack:
-                raise ValueError(f"Circular dependency detected involving '{name}'")
-            if name in visited:
-                return
-            stack.add(name)
-            entry = self.packages.get(name)
+        while current is not None:
+            if current in seen:
+                raise ValueError(f"Circular parent chain detected involving '{current}'")
+            seen.add(current)
+            entry = self.packages.get(current)
             if entry is None:
-                similar = self.find_similar_names(name)
-                msg = f"Dependency '{name}' not found in registry."
+                similar = self.find_similar_names(current)
+                msg = f"Parent '{current}' not found in registry."
                 if similar:
                     msg += f" Did you mean: {', '.join(similar)}?"
                 raise ValueError(msg)
-            for dep in entry.depends_on:
-                _resolve(dep)
-            stack.remove(name)
-            visited.add(name)
-            chain.append(name)
+            chain.append(current)
+            current = entry.parent
 
-        _resolve(package_name)
+        chain.reverse()
         return chain
+
+    def validate_tree(self) -> list[str]:
+        """Validate the entire registry's tree structure.
+
+        Checks that every parent reference exists and there are no cycles.
+        Returns a list of error strings (empty = valid).
+        """
+        errors: list[str] = []
+        for name, entry in self.packages.items():
+            if entry.parent is not None and entry.parent not in self.packages:
+                similar = self.find_similar_names(entry.parent)
+                msg = f"Package '{name}' has parent '{entry.parent}' which does not exist."
+                if similar:
+                    msg += f" Did you mean: {', '.join(similar)}?"
+                errors.append(msg)
+        # Cycle detection: try resolving each package's ancestor chain
+        if not errors:
+            for name in self.packages:
+                try:
+                    self.resolve_ancestor_chain(name)
+                except ValueError as e:
+                    if "Circular" in str(e):
+                        errors.append(str(e))
+                        break  # one cycle error is enough
+        return errors
 
     def rebuild_from_packages(self, packages_dir: Path) -> None:
         """Scan packages_dir and rebuild registry entries from package.yaml files.
@@ -465,7 +477,6 @@ class Registry:
                 tags=list(meta.tags),
                 path=f"packages/{pkg_dir.name}",
                 parent=meta.parent,
-                depends_on=list(meta.depends_on),
             )
 
     def validate_id(self) -> list[str]:
@@ -784,7 +795,7 @@ class RemoveResult:
     """Result of remove_package()."""
 
     removed: bool = False
-    dependents: list[str] = field(default_factory=list)
+    children: list[str] = field(default_factory=list)
     unexported: list[str] = field(default_factory=list)
 
 
@@ -843,9 +854,8 @@ class PackageInfo:
     classification: str = ""
     tags: list[str] = field(default_factory=list)
     parent: str | None = None
-    depends_on: list[str] = field(default_factory=list)
     children: list[str] = field(default_factory=list)
-    transitive_deps: list[str] = field(default_factory=list)
+    ancestors: list[str] = field(default_factory=list)
     installed: bool = False
     ref: str = ""
     files: list[FileInfo] = field(default_factory=list)
@@ -944,7 +954,7 @@ class RegistryPreviewPackage:
     classification: str = ""  # evergreen / seasonal
     content_type: str = ""  # knowledge / commands
     tags: list[str] = field(default_factory=list)
-    depends_on: list[str] = field(default_factory=list)
+    parent: str | None = None
 
 
 @dataclass

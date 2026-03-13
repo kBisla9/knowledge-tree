@@ -859,7 +859,7 @@ class TestPreviewRegistry:
 
         api = next(p for p in preview.packages if p.name == "api-patterns")
         assert api.classification == "seasonal"
-        assert "base" in api.depends_on
+        assert api.parent == "base"
 
     def test_preview_then_add_no_double_clone(self, registry_repo, tmp_path):
         """After preview_registry, add_registry should reuse the cached source."""

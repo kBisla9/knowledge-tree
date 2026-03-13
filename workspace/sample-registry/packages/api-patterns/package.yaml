@@ -3,8 +3,7 @@ description: REST API design patterns and authentication standards
 authors:
   - Knowledge Tree Team
 classification: seasonal
-depends_on:
-  - base
+parent: base
 tags:
   - api
   - rest
