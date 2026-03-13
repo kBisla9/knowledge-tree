@@ -23,7 +23,7 @@ from knowledge_tree.models import CommandEntry, ContentItem, PackageMetadata
 
 def _make_knowledge_dir(project: Path, name: str, files: dict[str, str]) -> Path:
     """Create a package source directory with given files (simulates registry cache)."""
-    pkg_dir = project / ".knowledge-tree" / "registries" / "default" / "packages" / name
+    pkg_dir = project / ".knowledge-tree" / "cache" / "default" / "packages" / name
     pkg_dir.mkdir(parents=True)
     for filename, content in files.items():
         (pkg_dir / filename).write_text(content)
@@ -104,7 +104,7 @@ class TestClaudeCodeExporter:
         assert "user-invocable: false" in content
         assert _MANAGED_MARKER in content
 
-    def test_export_copies_content_files(self, tmp_path):
+    def test_export_inlines_content_files(self, tmp_path):
         source = _make_knowledge_dir(
             tmp_path,
             "api-patterns",
@@ -119,12 +119,16 @@ class TestClaudeCodeExporter:
         result = exporter.export_package("api-patterns", source, meta, registry_name="default")
 
         skill_dir = tmp_path / ".claude" / "skills" / "default" / "api-patterns"
-        assert (skill_dir / "rest-conventions.md").exists()
-        assert (skill_dir / "authentication.md").exists()
-        # SKILL.md + 2 content files = 3 files written
-        assert len(result.files_written) == 3
+        # Only SKILL.md — no separate content files
+        assert not (skill_dir / "rest-conventions.md").exists()
+        assert not (skill_dir / "authentication.md").exists()
+        assert len(result.files_written) == 1
+        # Content should be inlined in SKILL.md
+        content = (skill_dir / "SKILL.md").read_text()
+        assert "# REST" in content
+        assert "# Auth" in content
 
-    def test_export_skill_md_lists_content_files(self, tmp_path):
+    def test_export_skill_md_inlines_content(self, tmp_path):
         source = _make_knowledge_dir(tmp_path, "base", {"safe-deletion.md": "# Safe Deletion\n"})
         exporter = ClaudeCodeExporter(tmp_path)
         meta = _sample_metadata()
@@ -132,7 +136,7 @@ class TestClaudeCodeExporter:
         exporter.export_package("base", source, meta, registry_name="default")
 
         content = (tmp_path / ".claude" / "skills" / "default" / "base" / "SKILL.md").read_text()
-        assert "[safe-deletion.md](safe-deletion.md)" in content
+        assert "# Safe Deletion" in content
 
     def test_export_skips_existing_non_managed(self, tmp_path):
         # Create an existing skill dir that's NOT managed by KT
@@ -444,9 +448,9 @@ class TestRooCodeSkillsExport:
         skill_dir = tmp_path / ".roo" / "skills" / "api-reference"
         assert skill_dir.is_dir()
         assert (skill_dir / "SKILL.md").exists()
-        # Source file also copied alongside
-        assert (skill_dir / "api-reference.md").exists()
-        assert len(result.files_written) == 2  # SKILL.md + source copy
+        # Only SKILL.md — content inlined, no separate source copy
+        assert not (skill_dir / "api-reference.md").exists()
+        assert len(result.files_written) == 1
 
     def test_skills_frontmatter(self, tmp_path):
         """Skills SKILL.md has Agent Skills standard frontmatter."""
@@ -587,7 +591,7 @@ class TestRooCodeSkillsExport:
         exporter.export_package("ref", source, meta, registry_name="default")
         result = exporter.export_package("ref", source, meta, force=False, registry_name="default")
 
-        assert len(result.files_written) == 2  # SKILL.md + source copy
+        assert len(result.files_written) == 1  # SKILL.md only
 
     def test_unexport_removes_skills(self, tmp_path):
         """unexport_package removes managed skill directories."""
@@ -630,8 +634,8 @@ class TestRooCodeSkillsExport:
 
         assert (tmp_path / ".roo" / "skills" / "api" / "SKILL.md").exists()
         assert (tmp_path / ".roo" / "skills" / "config" / "SKILL.md").exists()
-        # 2 skills x (SKILL.md + source copy) = 4 files
-        assert len(result.files_written) == 4
+        # 2 skills x SKILL.md = 2 files
+        assert len(result.files_written) == 2
 
 
 # ===========================================================================

@@ -66,7 +66,7 @@ class TestInit:
         engine = KnowledgeTreeEngine(project_dir)
         engine.init(str(bare), branch="main")
 
-        cache = project_dir / ".knowledge-tree" / "registries" / "default"
+        cache = project_dir / ".knowledge-tree" / "cache" / "default"
         assert cache.is_dir()
         assert (cache / "registry.yaml").exists()
 
@@ -123,7 +123,7 @@ class TestInit:
         engine = KnowledgeTreeEngine(project_dir)
         engine.init(str(bare), branch="main", registry_name="primary")
 
-        cache = project_dir / ".knowledge-tree" / "registries" / "primary"
+        cache = project_dir / ".knowledge-tree" / "cache" / "primary"
         assert cache.is_dir()
 
         from knowledge_tree.models import ProjectConfig
@@ -641,7 +641,7 @@ class TestContribute:
         md = self._make_md(tmp_path)
         engine.contribute(md, "test-pkg")
 
-        dest = project / ".knowledge-tree" / "registries" / "default" / "community" / "test-pkg"
+        dest = project / ".knowledge-tree" / "cache" / "default" / "community" / "test-pkg"
         assert dest.is_dir()
         assert (dest / "my-knowledge.md").exists()
         assert (dest / "package.yaml").exists()
@@ -656,7 +656,7 @@ class TestContribute:
         meta = PackageMetadata.from_yaml_file(
             project
             / ".knowledge-tree"
-            / "registries"
+            / "cache"
             / "default"
             / "community"
             / "test-pkg"
@@ -673,13 +673,7 @@ class TestContribute:
         engine.contribute(md, "child-pkg", to_existing="base")
 
         dest = (
-            project
-            / ".knowledge-tree"
-            / "registries"
-            / "default"
-            / "community"
-            / "base"
-            / "child-pkg"
+            project / ".knowledge-tree" / "cache" / "default" / "community" / "base" / "child-pkg"
         )
         assert dest.is_dir()
         assert (dest / "my-knowledge.md").exists()
@@ -749,7 +743,7 @@ class TestContribute:
         copied = (
             project
             / ".knowledge-tree"
-            / "registries"
+            / "cache"
             / "default"
             / "community"
             / "test-pkg"
@@ -970,7 +964,7 @@ class TestInitLocalDirectory:
         assert "base" in packages
         assert "git-conventions" in packages
         assert "api-patterns" in packages
-        assert (project / ".knowledge-tree" / "registries" / "default" / "registry.yaml").exists()
+        assert (project / ".knowledge-tree" / "cache" / "default" / "registry.yaml").exists()
 
     def test_config_has_local_type(self, registry_dir: Path, tmp_path: Path):
         project = tmp_path / "proj-local"
@@ -1044,7 +1038,7 @@ class TestInitArchive:
         packages = engine.init(str(registry_archive_tar_gz))
 
         assert "base" in packages
-        assert (project / ".knowledge-tree" / "registries" / "default" / "registry.yaml").exists()
+        assert (project / ".knowledge-tree" / "cache" / "default" / "registry.yaml").exists()
 
     def test_init_from_zip(self, registry_archive_zip: Path, tmp_path: Path):
         project = tmp_path / "proj-zip"
@@ -1061,9 +1055,7 @@ class TestInitArchive:
         packages = engine.init(str(registry_archive_nested))
 
         assert "base" in packages
-        assert (
-            project / ".knowledge-tree" / "registries" / "default" / "packages" / "base"
-        ).is_dir()
+        assert (project / ".knowledge-tree" / "cache" / "default" / "packages" / "base").is_dir()
 
     def test_config_has_archive_type(self, registry_archive_tar_gz: Path, tmp_path: Path):
         project = tmp_path / "proj-archive"
@@ -1183,7 +1175,7 @@ class TestMultiRegistry:
 
         config = ProjectConfig.from_yaml_file(project / ".knowledge-tree" / "kt.yaml")
         assert config.get_registry("internal") is None
-        assert not (project / ".knowledge-tree" / "registries" / "internal").exists()
+        assert not (project / ".knowledge-tree" / "cache" / "internal").exists()
 
     def test_remove_registry_with_packages_requires_force(self, multi_project):
         engine, _ = multi_project
@@ -1369,44 +1361,6 @@ class TestCanonicalRegistryId:
 
 
 class TestCacheMigration:
-    def test_old_cache_migrates(self, registry_repo, tmp_path):
-        """Old-format project with registry_cache/ should auto-migrate."""
-        bare, _ = registry_repo
-        project = tmp_path / "old-project"
-        project.mkdir()
+    """Migration tests removed — no users on old format yet."""
 
-        # Simulate old-format project
-        kt_dir = project / ".knowledge-tree"
-        kt_dir.mkdir()
-
-        # Clone into old-format registry_cache/
-        engine = KnowledgeTreeEngine(project)
-        old_cache = kt_dir / "registry_cache"
-        from knowledge_tree import registry_source
-
-        registry_source.populate_cache(
-            source=str(bare), dest=old_cache, branch="main", source_type="git"
-        )
-
-        # Write old-format kt.yaml
-        from knowledge_tree._yaml_helpers import save_yaml
-
-        save_yaml(
-            {
-                "registry": str(bare),
-                "registry_ref": "main",
-                "registry_type": "git",
-                "packages": [{"name": "base", "ref": "abc1234"}],
-            },
-            kt_dir / "kt.yaml",
-        )
-
-        # Now load config — should trigger migration
-        config = engine._load_config()
-        assert len(config.registries) == 1
-        assert config.registries[0].name == "default"
-
-        # Old cache should be moved
-        new_cache = kt_dir / "registries" / "default"
-        assert new_cache.exists()
-        assert not old_cache.exists()
+    pass

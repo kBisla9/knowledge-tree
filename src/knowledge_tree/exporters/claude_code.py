@@ -72,16 +72,10 @@ class ClaudeCodeExporter(Exporter):
                 shutil.rmtree(skill_dir)
             skill_dir.mkdir(parents=True)
 
-            # Generate SKILL.md
+            # Generate SKILL.md with all content inlined
             skill_content = _build_skill_md(metadata, content_files)
             skill_md.write_text(skill_content)
             files_written.append(skill_md)
-
-            # Copy content files
-            for src_file in content_files:
-                dest_file = skill_dir / src_file.name
-                shutil.copy2(src_file, dest_file)
-                files_written.append(dest_file)
 
         # --- Command export ---
         if metadata.commands:
@@ -248,7 +242,7 @@ def _build_skill_md(
     metadata: PackageMetadata,
     content_files: list[Path],
 ) -> str:
-    """Build the SKILL.md content with YAML frontmatter."""
+    """Build SKILL.md with YAML frontmatter and all content inlined."""
     lines: list[str] = []
 
     # YAML frontmatter
@@ -263,18 +257,14 @@ def _build_skill_md(
     lines.append(_MANAGED_MARKER)
     lines.append("")
 
-    # Body
-    lines.append(f"# {metadata.name}")
-    lines.append("")
-    lines.append(metadata.description)
-    lines.append("")
-
-    # Content file index
-    if content_files:
-        lines.append("## Content Files")
-        lines.append("")
-        for f in content_files:
-            lines.append(f"- [{f.name}]({f.name})")
-        lines.append("")
+    # Inline all content files
+    for i, f in enumerate(content_files):
+        body = f.read_text()
+        lines.append(body)
+        if not body.endswith("\n"):
+            lines.append("")
+        # Blank line between files
+        if i < len(content_files) - 1:
+            lines.append("")
 
     return "\n".join(lines)

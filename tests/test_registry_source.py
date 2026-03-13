@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import subprocess
-import tarfile
 import zipfile
 from pathlib import Path
 
@@ -15,7 +14,6 @@ from knowledge_tree.registry_source import (
     _safe_zip_extract,
     detect_source_type,
     populate_cache,
-    refresh_cache,
 )
 
 # ---------------------------------------------------------------------------
@@ -238,74 +236,4 @@ class TestPopulateCache:
             populate_cache(str(tmp_path), tmp_path / "cache", "", "ftp")
 
 
-# ---------------------------------------------------------------------------
-# refresh_cache
-# ---------------------------------------------------------------------------
-
-
-class TestRefreshCache:
-    def test_git_pull(self, registry_repo: tuple[Path, Path], tmp_path: Path) -> None:
-        bare, _ = registry_repo
-        dest = tmp_path / "cache"
-        populate_cache(str(bare), dest, "main", "git")
-        ref = refresh_cache(str(bare), dest, "main", "git")
-        assert len(ref) == 7
-        assert (dest / "registry.yaml").exists()
-
-    def test_local_recopy(self, registry_dir: Path, tmp_path: Path) -> None:
-        dest = tmp_path / "cache"
-        populate_cache(str(registry_dir), dest, "", "local")
-
-        # Modify source
-        (registry_dir / "new-file.txt").write_text("added")
-
-        ref = refresh_cache(str(registry_dir), dest, "", "local")
-        assert ref == "local"
-        assert (dest / "new-file.txt").exists()
-
-    def test_archive_re_extract(self, registry_dir: Path, tmp_path: Path) -> None:
-        # Create initial archive
-        archive_path = tmp_path / "test.tar.gz"
-        with tarfile.open(archive_path, "w:gz") as tf:
-            for item in sorted(registry_dir.iterdir()):
-                tf.add(item, arcname=item.name)
-
-        dest = tmp_path / "cache"
-        ref1 = populate_cache(str(archive_path), dest, "", "archive")
-
-        # Add a file to source and recreate archive
-        (registry_dir / "extra.md").write_text("# Extra")
-        with tarfile.open(archive_path, "w:gz") as tf:
-            for item in sorted(registry_dir.iterdir()):
-                tf.add(item, arcname=item.name)
-
-        ref2 = refresh_cache(str(archive_path), dest, "", "archive")
-        assert (dest / "extra.md").exists()
-        # Hash should differ since archive content changed
-        assert ref1 != ref2
-
-    def test_local_source_gone(self, tmp_path: Path) -> None:
-        src = tmp_path / "src"
-        src.mkdir()
-        (src / "registry.yaml").write_text("packages: {}")
-
-        dest = tmp_path / "cache"
-        populate_cache(str(src), dest, "", "local")
-
-        # Remove source
-        import shutil
-
-        shutil.rmtree(src)
-
-        with pytest.raises(FileNotFoundError, match="no longer exists"):
-            refresh_cache(str(src), dest, "", "local")
-
-    def test_archive_source_gone(self, registry_archive_tar_gz: Path, tmp_path: Path) -> None:
-        dest = tmp_path / "cache"
-        populate_cache(str(registry_archive_tar_gz), dest, "", "archive")
-
-        # Remove archive
-        registry_archive_tar_gz.unlink()
-
-        with pytest.raises(FileNotFoundError, match="no longer exists"):
-            refresh_cache(str(registry_archive_tar_gz), dest, "", "archive")
+# refresh_cache removed — update now uses nuke-and-reclone via populate_cache

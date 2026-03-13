@@ -56,11 +56,11 @@ class KnowledgeTreeEngine:
         self.project_root = project_root
         self.knowledge_tree_dir = project_root / ".knowledge-tree"
         self.config_path = self.knowledge_tree_dir / "kt.yaml"
-        self.registries_dir = self.knowledge_tree_dir / "registries"
+        self.cache_dir = self.knowledge_tree_dir / "cache"
 
     def _registry_cache_dir(self, registry_name: str) -> Path:
         """Return the cache directory for a named registry."""
-        return self.registries_dir / registry_name
+        return self.cache_dir / registry_name
 
     def _load_config(self) -> ProjectConfig:
         if not self.config_path.exists():
@@ -80,26 +80,36 @@ class KnowledgeTreeEngine:
         return "registries" in data
 
     def _migrate_if_needed(self) -> None:
-        """Migrate from old directory layouts if needed.
+        """Placeholder for future migrations. No migrations needed currently."""
+        pass
 
-        Handles:
-        - .kt/ → .knowledge-tree/ (directory rename)
-        - .kt/registry_cache/ → .knowledge-tree/registries/default/ (old cache name)
+    def _ensure_cache(self, reg: RegistrySource) -> Path:
+        """Ensure the registry cache is present, re-fetching if missing.
+
+        Returns the cache directory path.
         """
-        old_kt_dir = self.project_root / ".kt"
+        cache_dir = self._registry_cache_dir(reg.name)
+        if (cache_dir / "registry.yaml").exists():
+            return cache_dir
+        # Cache missing — re-fetch from source
+        if cache_dir.exists():
+            shutil.rmtree(cache_dir)
+        registry_source.populate_cache(
+            source=reg.source,
+            dest=cache_dir,
+            branch=reg.ref,
+            source_type=reg.type,
+        )
+        return cache_dir
 
-        # Migrate .kt/ → .knowledge-tree/
-        if old_kt_dir.exists() and not self.knowledge_tree_dir.exists():
-            old_kt_dir.rename(self.knowledge_tree_dir)
-
-        # Migrate old registry_cache/ to registries/default/
-        old_cache = self.knowledge_tree_dir / "registry_cache"
-        new_cache = self._registry_cache_dir("default")
-        if old_cache.exists() and not new_cache.exists():
-            self.registries_dir.mkdir(parents=True, exist_ok=True)
-            old_cache.rename(new_cache)
-
-    def _load_registry(self, registry_name: str = "default") -> Registry:
+    def _load_registry(
+        self,
+        registry_name: str = "default",
+        reg_source: RegistrySource | None = None,
+    ) -> Registry:
+        """Load a registry from cache. Re-fetches if reg_source is provided and cache is missing."""
+        if reg_source is not None:
+            self._ensure_cache(reg_source)
         cache_dir = self._registry_cache_dir(registry_name)
         registry_yaml = cache_dir / "registry.yaml"
         if not registry_yaml.exists():
@@ -109,10 +119,12 @@ class KnowledgeTreeEngine:
         return Registry.from_yaml_file(registry_yaml)
 
     def _load_all_registries(self, config: ProjectConfig) -> dict[str, Registry]:
-        """Load all configured registries. Returns {name: Registry}."""
+        """Load all configured registries. Returns {name: Registry}. Re-fetches missing caches."""
         registries = {}
         for reg_source in config.registries:
-            registries[reg_source.name] = self._load_registry(reg_source.name)
+            registries[reg_source.name] = self._load_registry(
+                reg_source.name, reg_source=reg_source
+            )
         return registries
 
     def _resolve_registry_id(self, registry: Registry, config: ProjectConfig | None = None) -> str:
@@ -709,7 +721,10 @@ class KnowledgeTreeEngine:
         for reg_source in target_registries:
             cache_dir = self._registry_cache_dir(reg_source.name)
             try:
-                short_ref = registry_source.refresh_cache(
+                # Nuke and re-fetch for a clean cache
+                if cache_dir.exists():
+                    shutil.rmtree(cache_dir)
+                short_ref = registry_source.populate_cache(
                     source=reg_source.source,
                     dest=cache_dir,
                     branch=reg_source.ref,

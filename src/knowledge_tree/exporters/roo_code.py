@@ -238,16 +238,11 @@ class RooCodeExporter(Exporter):
                 shutil.rmtree(skill_dir)
             skill_dir.mkdir(parents=True)
 
-            # Build SKILL.md
+            # Build SKILL.md with content inlined
             body = src_file.read_text()
             skill_content = _build_roo_skill_md(skill_name, description, body, marker)
             skill_md.write_text(skill_content)
             files_written.append(skill_md)
-
-            # Copy source file alongside SKILL.md for reference
-            dest_file = skill_dir / src_file.name
-            shutil.copy2(src_file, dest_file)
-            files_written.append(dest_file)
 
         return ExportResult(
             package_name=package_name,

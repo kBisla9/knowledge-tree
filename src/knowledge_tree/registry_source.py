@@ -74,39 +74,6 @@ def populate_cache(
     raise ValueError(f"Unknown source type: {source_type}")
 
 
-def refresh_cache(
-    source: str,
-    dest: Path,
-    branch: str,
-    source_type: str,
-) -> str:
-    """Refresh the registry cache from the source.
-
-    Returns a new ref string.
-    """
-    if source_type == "git":
-        git_ops.pull(dest, branch)
-        return git_ops.get_short_ref(dest)
-
-    if source_type == "local":
-        src_path = Path(source)
-        if not src_path.is_dir():
-            raise FileNotFoundError(f"Source directory no longer exists: {source}")
-        shutil.rmtree(dest)
-        _copy_directory(src_path, dest)
-        return "local"
-
-    if source_type == "archive":
-        archive_path = Path(source)
-        if not archive_path.is_file():
-            raise FileNotFoundError(f"Archive file no longer exists: {source}")
-        shutil.rmtree(dest)
-        _extract_archive(archive_path, dest)
-        return _hash_file(archive_path)[:7]
-
-    raise ValueError(f"Unknown source type: {source_type}")
-
-
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------

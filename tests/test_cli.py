@@ -102,7 +102,7 @@ class TestInit:
         result = runner.invoke(cli, ["init", str(bare), "--name", "primary", "--no-install"])
         assert result.exit_code == 0
         assert "primary" in result.output
-        assert (project / ".knowledge-tree" / "registries" / "primary").is_dir()
+        assert (project / ".knowledge-tree" / "cache" / "primary").is_dir()
 
     def test_init_already_initialized(self, cli_project):
         runner, _, bare = cli_project
@@ -148,9 +148,9 @@ class TestConfirmation:
         assert result.exit_code == 0
         assert "Cancelled" in result.output
         # Registry should be cleaned up
-        registries_dir = project / ".knowledge-tree" / "registries"
-        if registries_dir.exists():
-            assert len(list(registries_dir.iterdir())) == 0
+        cache_dir = project / ".knowledge-tree" / "cache"
+        if cache_dir.exists():
+            assert len(list(cache_dir.iterdir())) == 0
 
     def test_init_no_install_bypasses_confirmation(self, cli_uninit):
         runner, _, bare = cli_uninit
@@ -432,7 +432,7 @@ class TestUpdate:
 
         # Delete api-patterns from cache to simulate corruption
         shutil.rmtree(
-            project / ".knowledge-tree" / "registries" / "default" / "packages" / "api-patterns"
+            project / ".knowledge-tree" / "cache" / "default" / "packages" / "api-patterns"
         )
         # git pull during update restores the cache
         result = runner.invoke(cli, ["update"])
@@ -509,7 +509,7 @@ class TestInfo:
 class TestAuthorValidate:
     def test_validate_valid(self, cli_project):
         runner, project, _ = cli_project
-        pkg_path = project / ".knowledge-tree" / "registries" / "default" / "packages" / "base"
+        pkg_path = project / ".knowledge-tree" / "cache" / "default" / "packages" / "base"
         result = runner.invoke(cli, ["author", "validate", str(pkg_path)])
         assert result.exit_code == 0
         assert "is valid" in result.output
@@ -524,7 +524,7 @@ class TestAuthorValidate:
 
     def test_validate_all(self, cli_project):
         runner, project, _ = cli_project
-        pkgs_path = project / ".knowledge-tree" / "registries" / "default" / "packages"
+        pkgs_path = project / ".knowledge-tree" / "cache" / "default" / "packages"
         result = runner.invoke(cli, ["author", "validate", str(pkgs_path), "--all"])
         assert result.exit_code == 0
         assert "base" in result.output
@@ -642,7 +642,7 @@ class TestAuthorContribute:
 class TestAuthorRebuild:
     def test_rebuild(self, cli_project):
         runner, project, _ = cli_project
-        cache = project / ".knowledge-tree" / "registries" / "default"
+        cache = project / ".knowledge-tree" / "cache" / "default"
         result = runner.invoke(cli, ["author", "rebuild", str(cache)])
         assert result.exit_code == 0
         assert "Rebuilt registry with 4 packages" in result.output

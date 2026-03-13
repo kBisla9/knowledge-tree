@@ -939,7 +939,7 @@ class TestPreviewRegistry:
         engine = KnowledgeTreeEngine(project)
 
         preview = engine.preview_registry(str(bare))
-        assert (project / ".knowledge-tree" / "registries" / preview.name).is_dir()
+        assert (project / ".knowledge-tree" / "cache" / preview.name).is_dir()
 
         engine.remove_registry(preview.name, force=True)
-        assert not (project / ".knowledge-tree" / "registries" / preview.name).is_dir()
+        assert not (project / ".knowledge-tree" / "cache" / preview.name).is_dir()
