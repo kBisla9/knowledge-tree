@@ -1129,3 +1129,219 @@ class TestExtractFirstHeading:
         from knowledge_tree.exporters.roo_code import _extract_first_heading
 
         assert _extract_first_heading("# First\n\n## Second\n") == "First"
+
+
+# ===========================================================================
+# Commands content_type routing
+# ===========================================================================
+
+
+class TestRooCodeCommandsContentType:
+    def test_content_type_commands_routes_to_commands_dir(self, tmp_path):
+        """content_type=commands routes all content files to .roo/commands/."""
+        source = _make_knowledge_dir(
+            tmp_path, "ops", {"start.md": "# Start\nBegin work.", "end.md": "# End\nFinish."}
+        )
+        exporter = RooCodeExporter(tmp_path)
+        meta = PackageMetadata(
+            name="ops",
+            description="Operations commands",
+            authors=["Test"],
+            classification="evergreen",
+            content_type="commands",
+        )
+
+        result = exporter.export_package("ops", source, meta, registry_name="default")
+
+        # Both files should be in .roo/commands/
+        assert (tmp_path / ".roo" / "commands" / "start.md").exists()
+        assert (tmp_path / ".roo" / "commands" / "end.md").exists()
+        assert len(result.files_written) == 2
+        # No rules created
+        rules_dir = tmp_path / ".roo" / "rules"
+        if rules_dir.exists():
+            assert not list(rules_dir.glob("kt-default-ops-*.md"))
+
+    def test_content_type_commands_includes_frontmatter(self, tmp_path):
+        """Command files from content_type get proper frontmatter."""
+        source = _make_knowledge_dir(tmp_path, "ops", {"review.md": "# Review\nReview code."})
+        exporter = RooCodeExporter(tmp_path)
+        meta = PackageMetadata(
+            name="ops",
+            description="Operations",
+            authors=["Test"],
+            classification="evergreen",
+            content_type="commands",
+        )
+
+        exporter.export_package("ops", source, meta, registry_name="default")
+
+        content = (tmp_path / ".roo" / "commands" / "review.md").read_text()
+        assert "---" in content
+        assert "Managed by Knowledge Tree" in content
+        assert "# Review" in content
+
+    def test_per_file_hint_commands(self, tmp_path):
+        """Per-file export_hint routes individual files to commands."""
+        source = _make_knowledge_dir(
+            tmp_path,
+            "mixed",
+            {"guide.md": "# Guide\n", "deploy.md": "# Deploy\n"},
+        )
+        exporter = RooCodeExporter(tmp_path)
+        meta = PackageMetadata(
+            name="mixed",
+            description="Mixed package",
+            authors=["Test"],
+            classification="evergreen",
+            content=[
+                ContentItem(file="guide.md"),  # default → knowledge → rules
+                ContentItem(file="deploy.md", export_hints={"roo-code": "commands"}),
+            ],
+        )
+
+        result = exporter.export_package("mixed", source, meta, registry_name="default")
+
+        # guide → rules
+        rules = list((tmp_path / ".roo" / "rules").glob("kt-default-mixed-*.md"))
+        assert len(rules) == 1
+        assert "guide" in rules[0].name
+        # deploy → commands
+        assert (tmp_path / ".roo" / "commands" / "deploy.md").exists()
+        assert len(result.files_written) == 2
+
+    def test_unexport_removes_content_type_commands(self, tmp_path):
+        """unexport_package cleans up commands created via content_type."""
+        source = _make_knowledge_dir(tmp_path, "ops", {"start.md": "# Start\n"})
+        exporter = RooCodeExporter(tmp_path)
+        meta = PackageMetadata(
+            name="ops",
+            description="Operations",
+            authors=["Test"],
+            classification="evergreen",
+            content_type="commands",
+        )
+
+        exporter.export_package("ops", source, meta, registry_name="default")
+        assert (tmp_path / ".roo" / "commands" / "start.md").exists()
+
+        result = exporter.unexport_package("ops", registry_name="default", metadata=meta)
+        assert not (tmp_path / ".roo" / "commands" / "start.md").exists()
+        assert len(result.files_removed) == 1
+
+    def test_content_type_commands_with_description(self, tmp_path):
+        """Content items with explicit description pass it to command frontmatter."""
+        source = _make_knowledge_dir(tmp_path, "ops", {"build.md": "Run the build."})
+        exporter = RooCodeExporter(tmp_path)
+        meta = PackageMetadata(
+            name="ops",
+            description="Operations",
+            authors=["Test"],
+            classification="evergreen",
+            content_type="commands",
+            content=[ContentItem(file="build.md", description="Build the project")],
+        )
+
+        exporter.export_package("ops", source, meta, registry_name="default")
+
+        content = (tmp_path / ".roo" / "commands" / "build.md").read_text()
+        assert "Build the project" in content
+
+
+class TestClaudeCodeCommandsContentType:
+    def test_content_type_commands_creates_user_invocable_skills(self, tmp_path):
+        """content_type=commands exports each file as a top-level user-invocable skill."""
+        source = _make_knowledge_dir(
+            tmp_path, "ops", {"start.md": "# Start\nBegin work.", "end.md": "# End\nFinish."}
+        )
+        exporter = ClaudeCodeExporter(tmp_path)
+        meta = PackageMetadata(
+            name="ops",
+            description="Operations commands",
+            authors=["Test"],
+            classification="evergreen",
+            content_type="commands",
+        )
+
+        result = exporter.export_package("ops", source, meta, registry_name="default")
+
+        # Each file becomes a top-level user-invocable skill
+        start_skill = tmp_path / ".claude" / "skills" / "start" / "SKILL.md"
+        end_skill = tmp_path / ".claude" / "skills" / "end" / "SKILL.md"
+        assert start_skill.exists()
+        assert end_skill.exists()
+        assert "user-invocable: true" in start_skill.read_text()
+        assert "user-invocable: true" in end_skill.read_text()
+        assert len(result.files_written) == 2
+        # No package-level SKILL.md (commands-only)
+        assert not (tmp_path / ".claude" / "skills" / "default" / "ops").exists()
+
+    def test_per_file_hint_commands(self, tmp_path):
+        """Per-file export_hint routes individual files as commands."""
+        source = _make_knowledge_dir(
+            tmp_path,
+            "mixed",
+            {"guide.md": "# Guide\n", "deploy.md": "# Deploy\n"},
+        )
+        exporter = ClaudeCodeExporter(tmp_path)
+        meta = PackageMetadata(
+            name="mixed",
+            description="Mixed package",
+            authors=["Test"],
+            classification="evergreen",
+            content=[
+                ContentItem(file="guide.md"),  # default → knowledge → inlined
+                ContentItem(file="deploy.md", export_hints={"claude-code": "commands"}),
+            ],
+        )
+
+        result = exporter.export_package("mixed", source, meta, registry_name="default")
+
+        # guide → inlined in package SKILL.md
+        pkg_skill = tmp_path / ".claude" / "skills" / "default" / "mixed" / "SKILL.md"
+        assert pkg_skill.exists()
+        assert "# Guide" in pkg_skill.read_text()
+        # deploy → top-level command skill
+        cmd_skill = tmp_path / ".claude" / "skills" / "deploy" / "SKILL.md"
+        assert cmd_skill.exists()
+        assert "user-invocable: true" in cmd_skill.read_text()
+        assert len(result.files_written) == 2  # 1 package SKILL.md + 1 command SKILL.md
+
+    def test_unexport_removes_content_type_commands(self, tmp_path):
+        """unexport_package cleans up commands created via content_type."""
+        source = _make_knowledge_dir(tmp_path, "ops", {"start.md": "# Start\n"})
+        exporter = ClaudeCodeExporter(tmp_path)
+        meta = PackageMetadata(
+            name="ops",
+            description="Operations",
+            authors=["Test"],
+            classification="evergreen",
+            content_type="commands",
+        )
+
+        exporter.export_package("ops", source, meta, registry_name="default")
+        assert (tmp_path / ".claude" / "skills" / "start" / "SKILL.md").exists()
+
+        result = exporter.unexport_package("ops", registry_name="default", metadata=meta)
+        assert not (tmp_path / ".claude" / "skills" / "start").exists()
+        assert len(result.files_removed) == 1
+
+    def test_commands_content_includes_body(self, tmp_path):
+        """Command skill includes the full file body."""
+        source = _make_knowledge_dir(
+            tmp_path, "ops", {"review.md": "Review all changed files for quality."}
+        )
+        exporter = ClaudeCodeExporter(tmp_path)
+        meta = PackageMetadata(
+            name="ops",
+            description="Operations",
+            authors=["Test"],
+            classification="evergreen",
+            content_type="commands",
+        )
+
+        exporter.export_package("ops", source, meta, registry_name="default")
+
+        content = (tmp_path / ".claude" / "skills" / "review" / "SKILL.md").read_text()
+        assert "Review all changed files for quality." in content
+        assert "name: review" in content

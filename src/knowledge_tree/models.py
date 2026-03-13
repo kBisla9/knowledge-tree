@@ -21,7 +21,7 @@ def _is_valid_uuid_hex(value: str) -> bool:
 
 
 VALID_CLASSIFICATIONS = {"evergreen", "seasonal"}
-VALID_CONTENT_TYPES = {"knowledge", "skills"}
+VALID_CONTENT_TYPES = {"knowledge", "skills", "commands"}
 VALID_EXPORT_HINT_VALUES = {"knowledge", "skills", "commands"}
 VALID_STATUSES = {"pending", "promoted", "archived"}
 

@@ -96,6 +96,7 @@ class RooCodeExporter(Exporter):
         # --- Group files by resolved content type ---
         rules_files: list[tuple[ContentItem, Path]] = []
         skills_files: list[tuple[ContentItem, Path]] = []
+        commands_files: list[tuple[ContentItem, Path]] = []
         for item in content_items:
             resolved = self._resolve_content_type(item, metadata)
             src_file = source_dir / item.file
@@ -103,6 +104,8 @@ class RooCodeExporter(Exporter):
                 continue
             if resolved == "skills":
                 skills_files.append((item, src_file))
+            elif resolved == "commands":
+                commands_files.append((item, src_file))
             else:
                 # "knowledge" and anything else → rules (default)
                 rules_files.append((item, src_file))
@@ -122,7 +125,15 @@ class RooCodeExporter(Exporter):
             files_skipped.extend(skills_result.files_skipped)
             warnings.extend(skills_result.warnings)
 
-        # --- Export commands ---
+        # --- Export content-type commands ---
+        if commands_files:
+            ct_cmd_result = self._export_as_commands(
+                package_name, commands_files, metadata, force, registry_name
+            )
+            files_written.extend(ct_cmd_result.files_written)
+            files_skipped.extend(ct_cmd_result.files_skipped)
+
+        # --- Export declared commands ---
         if metadata.commands:
             cmd_pairs: list[tuple[CommandEntry, Path]] = []
             for cmd in metadata.commands:
@@ -251,6 +262,48 @@ class RooCodeExporter(Exporter):
             warnings=warnings,
         )
 
+    def _export_as_commands(
+        self,
+        package_name: str,
+        files: list[tuple[ContentItem, Path]],
+        metadata: PackageMetadata,
+        force: bool,
+        registry_name: str,
+    ) -> ExportResult:
+        """Export content files as Roo Code commands (.roo/commands/<stem>.md)."""
+        files_written: list[Path] = []
+        files_skipped: list[Path] = []
+
+        self._commands_dir.mkdir(parents=True, exist_ok=True)
+
+        for item, src_file in files:
+            cmd_name = src_file.stem
+            dest_path = self._commands_dir / f"{cmd_name}.md"
+            marker = _COMMAND_MANAGED_COMMENT.format(
+                registry=registry_name, name=package_name, command=cmd_name
+            )
+
+            # Conflict check
+            if dest_path.exists() and not force:
+                if marker in dest_path.read_text():
+                    pass  # ours — safe to overwrite
+                else:
+                    files_skipped.append(dest_path)
+                    continue
+
+            # Build command entry from content item
+            entry = CommandEntry(name=cmd_name, description=item.description)
+            body = src_file.read_text()
+            content = _build_roo_command_md(entry, body, marker)
+            dest_path.write_text(content)
+            files_written.append(dest_path)
+
+        return ExportResult(
+            package_name=package_name,
+            files_written=files_written,
+            files_skipped=files_skipped,
+        )
+
     def export_commands(
         self,
         package_name: str,
@@ -349,11 +402,17 @@ class RooCodeExporter(Exporter):
                                 files_removed.append(f)
                         shutil.rmtree(skill_dir)
 
-        # Remove commands
-        if metadata and metadata.commands:
-            cmd_names = [cmd.name for cmd in metadata.commands]
-            cmd_result = self.unexport_commands(package_name, cmd_names, registry_name)
-            files_removed.extend(cmd_result.files_removed)
+        # Remove commands (declared + content-type)
+        if self._commands_dir.is_dir():
+            marker_pkg = f'package "{package_name}"'
+            marker_reg = f'registry "{registry_name}"'
+            for cmd_file in list(self._commands_dir.iterdir()):
+                if not cmd_file.is_file() or cmd_file.suffix != ".md":
+                    continue
+                content = cmd_file.read_text()
+                if marker_pkg in content and marker_reg in content:
+                    files_removed.append(cmd_file)
+                    cmd_file.unlink()
 
         return UnexportResult(
             package_name=package_name,
