@@ -24,10 +24,10 @@ Registries are crowdsourced — teams curate packages for coding conventions, AP
 # 1. Install
 pip install knowledge-tree
 
-# 2. Initialize from a registry (git repo, local directory, or archive)
-kt init https://github.com/your-org/knowledge-registry.git
-kt init ./my-registry/            # local directory
-kt init ./registry-export.tar.gz  # archive file (.tar.gz, .tgz, .zip)
+# 2. Add a registry (git repo, local directory, or archive — auto-initializes)
+kt registry add https://github.com/your-org/knowledge-registry.git
+kt registry add ./my-registry/            # local directory
+kt registry add ./registry-export.tar.gz  # archive file (.tar.gz, .tgz, .zip)
 
 # 3. Add more registries (optional — multi-registry support)
 kt registry add https://github.com/your-org/internal-rules.git --name internal
@@ -50,7 +50,7 @@ kt tree
     └── 🍂 api-patterns (installed) — REST API patterns and auth
 ```
 
-Packages are automatically exported to your AI tool's native format (Claude Code, Roo Code) when a format is configured. Share the registry URL with your team — each member runs `kt init <url>` to get the same packages.
+Packages are automatically exported to your AI tool's native format (Claude Code, Roo Code) when a format is configured. Share the registry URL with your team — each member runs `kt registry add <url>` to get the same packages.
 
 ## Key Concepts
 
@@ -66,7 +66,7 @@ Packages are automatically exported to your AI tool's native format (Claude Code
 
 **Multi-Registry** — Projects can use multiple registries simultaneously. Each registry gets a name (default: "default") and all storage is namespaced by registry. Use `kt registry add/remove` to manage registries and `--from <registry>` on `kt add` when a package exists in multiple registries.
 
-**Auto-Export** — When a tool format is configured (during `kt init` or via `kt config set export_format <format>`), packages are automatically exported on install and re-exported on update. Supported formats:
+**Auto-Export** — When a tool format is configured (during `kt registry add` or via `kt config set export_format <format>`), packages are automatically exported on install and re-exported on update. Supported formats:
 - `claude-code` — generates `.claude/skills/<registry>/<package>/SKILL.md` with YAML frontmatter
 - `roo-code` — generates `.roo/rules/kt-<registry>-<package>-<nn>-<file>.md` with managed-by headers
 
@@ -80,7 +80,6 @@ Use `kt update --format <name>` or `kt update --switch-tool` to change formats (
 
 | Command | Description |
 |---------|-------------|
-| `kt init [<url>]` | Initialize project; with URL, also adds registry and installs all packages |
 | `kt add <package> [--from <registry>]` | Install a package and its ancestors (auto-exports) |
 | `kt remove <package>` | Remove a package and clean up exports (warns about children) |
 | `kt search <query>` | Search by name, description, or tags |
@@ -119,12 +118,12 @@ Run `kt --help` or `kt <command> --help` for full options.
 
 ## How It Works
 
-**Initialization** — `kt init <source>` detects the source type automatically and caches the registry in `.knowledge-tree/registries/<name>/`:
+**Adding a registry** — `kt registry add <source>` detects the source type automatically and caches the registry in `.knowledge-tree/registries/<name>/`:
 - **Git repos** — shallow-cloned; tracks commit refs
 - **Local directories** — copied into the cache
 - **Archives** — extracted (handles root-level and nested layouts, with path-traversal protection for tar files)
 
-It creates `.knowledge-tree/kt.yaml` (config), installs all packages from the registry, exports them to your chosen tool format, and applies any registry templates. Use `--name` to set a custom registry name (default: "default"). Use `--no-install` to register the source without installing packages.
+It auto-initializes the project if needed (creating `.knowledge-tree/kt.yaml`), installs all packages from the registry, exports them to your chosen tool format, and applies any registry templates. Use `--name` to set a custom registry name (auto-derived from URL if omitted). Use `--no-install` to register the source without installing packages.
 
 **Multi-registry** — Add more registries with `kt registry add <source> --name <name>`. All storage is namespaced by registry name under `.knowledge-tree/registries/<name>/`. If a package name exists in multiple registries, use `kt add <package> --from <registry>` to disambiguate.
 
@@ -174,7 +173,7 @@ See [`workspace/sample-registry/`](workspace/sample-registry/) for a complete ex
 
 For detailed guidance on registry creation including templates, content types, and advanced patterns like one-shot wire commands, see the Registry Authoring Guide in the project documentation.
 
-To distribute a registry without git, you can tar/zip the directory and share the archive file — `kt init registry.tar.gz` will extract it automatically.
+To distribute a registry without git, you can tar/zip the directory and share the archive file — `kt registry add registry.tar.gz` will extract it automatically.
 
 ## Contributing
 

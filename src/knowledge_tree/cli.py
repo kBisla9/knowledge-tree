@@ -14,7 +14,7 @@ from rich.tree import Tree
 
 from knowledge_tree.engine import KnowledgeTreeEngine
 from knowledge_tree.exporters import list_formats
-from knowledge_tree.models import RegistryAddResult, RegistryPreview
+from knowledge_tree.models import RegistryAddResult, RegistryPreview, RegistryPreviewPackage
 
 console = Console()
 err_console = Console(stderr=True)
@@ -102,104 +102,6 @@ def _classification_icon(classification: str) -> str:
 def cli(debug):
     """Knowledge Tree - Crowdsourced knowledge management for AI agent context."""
     pass
-
-
-# ---------------------------------------------------------------------------
-# init
-# ---------------------------------------------------------------------------
-
-
-@cli.command()
-@click.argument("registry_url", required=False, default=None)
-@click.option("--branch", default="main", help="Registry branch (git only).")
-@click.option("--name", default=None, help="Registry name (auto-derived from URL if omitted).")
-@click.option(
-    "--format",
-    "tool_format",
-    default=None,
-    help="Tool format. Prompted if omitted.",
-)
-@click.option("--no-install", is_flag=True, help="Only register the source, skip install.")
-@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt.")
-@_handle_error
-def init(
-    registry_url: str | None,
-    branch: str,
-    name: str | None,
-    tool_format: str | None,
-    no_install: bool,
-    yes: bool,
-):
-    """Initialize a Knowledge Tree project.
-
-    When REGISTRY_URL is provided, also adds the registry and installs all
-    packages (same as kt registry add).
-    """
-    engine = _get_engine()
-
-    if engine.knowledge_tree_dir.exists():
-        raise FileExistsError(
-            "Already initialized. Remove .knowledge-tree/ directory to re-initialize."
-        )
-
-    if registry_url is None:
-        # Bare init — empty project
-        engine.init(None)
-        console.print("[green]Initialized Knowledge Tree.[/green]")
-        console.print("  Empty project created (no registries).")
-        console.print()
-        console.print(
-            "Run [bold]kt init <url>[/bold] or [bold]kt registry add <url>[/bold] to add a registry."
-        )
-        return
-
-    # Prompt for tool format (before preview so we can show it)
-    if not no_install and tool_format is None:
-        tool_format = _prompt_tool_format(engine)
-
-    if no_install or yes:
-        # Non-interactive: go straight to add_registry
-        label = name or registry_url
-        with console.status(f"Initializing with registry '{label}'..."):
-            result = engine.add_registry(
-                registry_url,
-                name=name,
-                branch=branch,
-                tool_format=tool_format,
-                install_packages=not no_install,
-            )
-        if tool_format:
-            engine.set_config("export_format", tool_format)
-        console.print(f"[green]Initialized Knowledge Tree with registry '{result.name}'.[/green]")
-        _print_registry_add_result(result, registry_url, no_install)
-        return
-
-    # Interactive: preview → confirm → execute
-    label = name or registry_url
-    with console.status(f"Fetching registry '{label}'..."):
-        preview = engine.preview_registry(registry_url, name=name, branch=branch)
-
-    selected = _confirm_registry_add(preview, tool_format or "")
-
-    if selected is None:
-        console.print("[dim]Cancelled.[/dim]")
-        engine.remove_registry(preview.name, force=True)
-        raise SystemExit(0)
-
-    with console.status(f"Installing {len(selected)} packages..."):
-        result = engine.add_registry(
-            registry_url,
-            name=name,
-            branch=branch,
-            tool_format=tool_format,
-            install_packages=True,
-            selected_packages=selected,
-        )
-
-    if tool_format:
-        engine.set_config("export_format", tool_format)
-    console.print(f"[green]Initialized Knowledge Tree with registry '{result.name}'.[/green]")
-    _print_registry_add_result(result, registry_url, False)
 
 
 # ---------------------------------------------------------------------------
@@ -714,6 +616,70 @@ def _format_name_for_display(format_name: str) -> str:
     return format_name
 
 
+def _build_package_tree(
+    preview: RegistryPreview,
+    selected: set[str] | None = None,
+    numbered: bool = False,
+) -> Tree:
+    """Build a Rich Tree from preview packages using parent relationships.
+
+    If *selected* is provided, each package shows a checkbox.
+    If *numbered* is True, packages are numbered (for toggle interaction).
+    """
+    rich_tree = Tree(f"[bold]{preview.name}[/bold]  ({len(preview.packages)} packages)")
+
+    # Index packages by name and build children map
+    pkg_by_name: dict[str, RegistryPreviewPackage] = {}
+    children_map: dict[str | None, list[RegistryPreviewPackage]] = {}
+    for pkg in preview.packages:
+        pkg_by_name[pkg.name] = pkg
+        children_map.setdefault(pkg.parent, []).append(pkg)
+
+    # Assign numbers in display order (depth-first)
+    pkg_numbers: dict[str, int] = {}
+    counter = [0]
+
+    def _assign_numbers(parent_name: str | None) -> None:
+        for pkg in children_map.get(parent_name, []):
+            counter[0] += 1
+            pkg_numbers[pkg.name] = counter[0]
+            _assign_numbers(pkg.name)
+
+    _assign_numbers(None)
+    # Also handle packages whose parent isn't in the preview (treat as roots)
+    for pkg in preview.packages:
+        if pkg.name not in pkg_numbers:
+            counter[0] += 1
+            pkg_numbers[pkg.name] = counter[0]
+
+    def _add_nodes(parent_tree: Tree, parent_name: str | None) -> None:
+        for pkg in children_map.get(parent_name, []):
+            icon = _classification_icon(pkg.classification)
+            num = pkg_numbers[pkg.name]
+            parts = []
+            if selected is not None:
+                mark = "[green]x[/green]" if pkg.name in selected else " "
+                parts.append(f"[{mark}]")
+            if numbered:
+                parts.append(f"[dim]{num}.[/dim]")
+            parts.append(f"{icon} [bold]{pkg.name}[/bold]")
+            if pkg.description:
+                parts.append(f"— {pkg.description}")
+            label = " ".join(parts)
+            branch = parent_tree.add(label)
+            _add_nodes(branch, pkg.name)
+
+    # Roots: packages with no parent or whose parent isn't in this preview
+    root_parents: set[str | None] = set()
+    for pkg in preview.packages:
+        if pkg.parent is None or pkg.parent not in pkg_by_name:
+            root_parents.add(pkg.parent)
+    for parent_name in sorted(root_parents, key=lambda x: (x is not None, x)):
+        _add_nodes(rich_tree, parent_name)
+
+    return rich_tree
+
+
 def _confirm_registry_add(
     preview: RegistryPreview,
     tool_format: str,
@@ -721,6 +687,7 @@ def _confirm_registry_add(
     """Show an interactive confirmation screen for registry add.
 
     Returns list of selected package names, or ``None`` if the user cancels.
+    Shows package selection tree by default with all packages selected.
     """
     # Header panel
     console.print()
@@ -734,23 +701,6 @@ def _confirm_registry_add(
         )
     )
 
-    # Packages table
-    if preview.packages:
-        table = Table(title=f"Packages ({len(preview.packages)})")
-        table.add_column("#", style="dim", width=3)
-        table.add_column("Name", style="bold")
-        table.add_column("Description")
-        table.add_column("Type", style="dim")
-
-        for i, pkg in enumerate(preview.packages, start=1):
-            table.add_row(
-                str(i),
-                pkg.name,
-                pkg.description,
-                pkg.classification,
-            )
-        console.print(table)
-
     # Templates
     if preview.templates:
         console.print("\n[bold]Templates to create:[/bold]")
@@ -760,47 +710,61 @@ def _confirm_registry_add(
         for dest in preview.templates_existing:
             console.print(f"  [dim]  {dest} (already exists, skipped)[/dim]")
 
-    # Confirmation prompt
-    console.print()
-    choice = click.prompt(
-        "Proceed? [Y]es / [n]o / [s]elect packages",
-        default="y",
-        show_default=False,
-    )
-    choice = choice.strip().lower()
-
-    if choice in ("n", "no"):
-        return None
-
-    if choice in ("s", "select"):
+    # Go straight to package selection with all selected
+    if preview.packages:
         return _select_packages(preview)
 
-    # Default: install all
-    return [pkg.name for pkg in preview.packages]
+    return []
 
 
 def _select_packages(preview: RegistryPreview) -> list[str] | None:
-    """Interactive package selection. Returns selected names or ``None`` if cancelled."""
+    """Interactive package selection with tree display.
+
+    Returns selected names or ``None`` if cancelled.
+    """
     selected = {pkg.name for pkg in preview.packages}  # all selected by default
     pkg_map = {p.name: p for p in preview.packages}
 
-    console.print("\nEnter package numbers to toggle (comma-separated), or:")
+    # Build number→name mapping (depth-first order matching the tree)
+    children_map: dict[str | None, list[RegistryPreviewPackage]] = {}
+    for pkg in preview.packages:
+        children_map.setdefault(pkg.parent, []).append(pkg)
+
+    pkg_numbers: dict[str, int] = {}
+    number_to_name: dict[int, str] = {}
+    counter = [0]
+
+    def _assign(parent_name: str | None) -> None:
+        for pkg in children_map.get(parent_name, []):
+            counter[0] += 1
+            pkg_numbers[pkg.name] = counter[0]
+            number_to_name[counter[0]] = pkg.name
+            _assign(pkg.name)
+
+    _assign(None)
+    for pkg in preview.packages:
+        if pkg.name not in pkg_numbers:
+            counter[0] += 1
+            pkg_numbers[pkg.name] = counter[0]
+            number_to_name[counter[0]] = pkg.name
+
+    console.print("\nToggle numbers (comma-separated), or:")
     console.print(
-        "  [bold]a[/bold] = select all  [bold]n[/bold] = select none  [bold]d[/bold] = done  [bold]q[/bold] = cancel"
+        "  [bold]a[/bold] = select all  [bold]n[/bold] = select none  "
+        "[bold]d[/bold] = done  [bold]q[/bold] = cancel"
     )
 
     while True:
         console.print()
-        for i, pkg in enumerate(preview.packages, start=1):
-            mark = "[green]x[/green]" if pkg.name in selected else " "
-            console.print(f"  [{mark}] [bold]{i}[/bold]  {pkg.name} — {pkg.description}")
+        tree = _build_package_tree(preview, selected=selected, numbered=True)
+        console.print(tree)
 
         console.print()
         response = click.prompt("Toggle", default="d").strip().lower()
 
         if response in ("q", "quit", "cancel"):
             return None
-        if response in ("d", "done"):
+        if response in ("d", "done", "y", "yes"):
             break
         if response in ("a", "all"):
             selected = {pkg.name for pkg in preview.packages}
@@ -813,8 +777,8 @@ def _select_packages(preview: RegistryPreview) -> list[str] | None:
         try:
             nums = [int(x.strip()) for x in response.split(",")]
             for num in nums:
-                if 1 <= num <= len(preview.packages):
-                    name = preview.packages[num - 1].name
+                if num in number_to_name:
+                    name = number_to_name[num]
                     if name in selected:
                         selected.discard(name)
                     else:
@@ -940,7 +904,8 @@ def registry_add(
     """
     engine = _get_engine()
 
-    # Resolve tool format
+    # Resolve tool format (defer set_config until after add_registry auto-inits)
+    persist_format = False
     if not no_install and tool_format is None:
         config = engine._load_config() if engine.knowledge_tree_dir.exists() else None
         existing_format = config.export_format if config else ""
@@ -948,7 +913,7 @@ def registry_add(
             tool_format = existing_format
         else:
             tool_format = _prompt_tool_format(engine)
-            engine.set_config("export_format", tool_format)
+            persist_format = True
 
     if no_install or yes:
         # Non-interactive path
@@ -961,6 +926,8 @@ def registry_add(
                 tool_format=tool_format,
                 install_packages=not no_install,
             )
+        if persist_format and tool_format:
+            engine.set_config("export_format", tool_format)
         console.print(f"[green]Added registry '{result.name}'.[/green]")
         _print_registry_add_result(result, source, no_install)
         return
@@ -992,6 +959,8 @@ def registry_add(
             selected_packages=selected,
         )
 
+    if persist_format and tool_format:
+        engine.set_config("export_format", tool_format)
     console.print(f"[green]Added registry '{result.name}'.[/green]")
     _print_registry_add_result(result, source, False)
 

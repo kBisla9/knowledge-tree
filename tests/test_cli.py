@@ -36,8 +36,10 @@ def cli_project(registry_repo, tmp_path, monkeypatch, cli_runner, _patch_console
     project.mkdir()
     monkeypatch.chdir(project)
 
-    result = cli_runner.invoke(cli, ["init", str(bare), "--name", "default", "--no-install"])
-    assert result.exit_code == 0, f"init failed: {result.output}"
+    result = cli_runner.invoke(
+        cli, ["registry", "add", str(bare), "--name", "default", "--no-install"]
+    )
+    assert result.exit_code == 0, f"registry add failed: {result.output}"
 
     return cli_runner, project, bare
 
@@ -78,97 +80,12 @@ class TestCliGroup:
 
 
 # ---------------------------------------------------------------------------
-# TestInit
-# ---------------------------------------------------------------------------
-
-
-class TestInit:
-    def test_init_success(self, cli_uninit):
-        runner, _project, bare = cli_uninit
-        result = runner.invoke(cli, ["init", str(bare), "--no-install"])
-        assert result.exit_code == 0
-        assert "Initialized Knowledge Tree" in result.output
-        assert "Available packages: 4" in result.output
-
-    def test_init_with_install(self, cli_uninit, _patch_consoles):
-        runner, _project, bare = cli_uninit
-        result = runner.invoke(cli, ["init", str(bare), "--format", "claude-code", "--yes"])
-        assert result.exit_code == 0
-        assert "Initialized Knowledge Tree" in result.output
-        assert "Packages installed" in result.output
-
-    def test_init_custom_name(self, cli_uninit):
-        runner, project, bare = cli_uninit
-        result = runner.invoke(cli, ["init", str(bare), "--name", "primary", "--no-install"])
-        assert result.exit_code == 0
-        assert "primary" in result.output
-        assert (project / ".knowledge-tree" / "cache" / "primary").is_dir()
-
-    def test_init_already_initialized(self, cli_project):
-        runner, _, bare = cli_project
-        result = runner.invoke(cli, ["init", str(bare), "--no-install"])
-        assert result.exit_code == 1
-
-    def test_empty_init(self, cli_uninit):
-        runner, project, _ = cli_uninit
-        result = runner.invoke(cli, ["init"])
-        assert result.exit_code == 0
-        assert "Empty project" in result.output
-        assert (project / ".knowledge-tree" / "kt.yaml").exists()
-
-
-# ---------------------------------------------------------------------------
 # TestConfirmation
 # ---------------------------------------------------------------------------
 
 
 class TestConfirmation:
-    """Tests for interactive confirmation during init and registry add."""
-
-    def test_init_yes_skips_confirmation(self, cli_uninit, _patch_consoles):
-        runner, _, bare = cli_uninit
-        result = runner.invoke(cli, ["init", str(bare), "--format", "claude-code", "--yes"])
-        assert result.exit_code == 0
-        assert "Initialized Knowledge Tree" in result.output
-        assert "Proceed?" not in result.output
-
-    def test_init_interactive_confirm_all(self, cli_uninit, _patch_consoles):
-        """Interactive init: select tool format (1), then confirm (y)."""
-        runner, _, bare = cli_uninit
-        result = runner.invoke(cli, ["init", str(bare)], input="1\ny\n")
-        assert result.exit_code == 0
-        assert "Registry Preview" in result.output
-        assert "Proceed?" in result.output
-        assert "Initialized Knowledge Tree" in result.output
-
-    def test_init_interactive_cancel(self, cli_uninit, _patch_consoles):
-        """Interactive init: select tool format (1), then cancel (n)."""
-        runner, project, bare = cli_uninit
-        result = runner.invoke(cli, ["init", str(bare)], input="1\nn\n")
-        assert result.exit_code == 0
-        assert "Cancelled" in result.output
-        # Registry should be cleaned up
-        cache_dir = project / ".knowledge-tree" / "cache"
-        if cache_dir.exists():
-            assert len(list(cache_dir.iterdir())) == 0
-
-    def test_init_no_install_bypasses_confirmation(self, cli_uninit):
-        runner, _, bare = cli_uninit
-        result = runner.invoke(cli, ["init", str(bare), "--no-install"])
-        assert result.exit_code == 0
-        assert "Proceed?" not in result.output
-        assert "Available packages:" in result.output
-
-    def test_init_interactive_select_packages(self, cli_uninit, _patch_consoles):
-        """Interactive init: select tool, enter select mode, deselect packages, done."""
-        runner, _project, bare = cli_uninit
-        # Packages sorted: 1=api-patterns, 2=base, 3=git-conventions, 4=session-mgmt
-        # Toggle off 3 (git-conventions) and 4 (session-mgmt), keep 1+2
-        result = runner.invoke(cli, ["init", str(bare)], input="1\ns\n3,4\nd\n")
-        assert result.exit_code == 0
-        assert "Initialized Knowledge Tree" in result.output
-        # Only 2 packages should be installed (base + api-patterns)
-        assert "Installing 2 packages" in result.output or "base" in result.output
+    """Tests for interactive confirmation during registry add."""
 
     def test_registry_add_yes_skips_confirmation(
         self, cli_project, second_registry_repo, _patch_consoles
@@ -608,7 +525,10 @@ class TestAuthorContribute:
         md_file.write_text("# Test\n")
         result = runner.invoke(cli, ["author", "contribute", str(md_file), "--name", "test-pkg"])
         assert result.exit_code == 1
-        assert "kt init" in result.output.lower() or "not initialized" in result.output.lower()
+        assert (
+            "kt registry add" in result.output.lower()
+            or "not initialized" in result.output.lower()
+        )
 
     def test_contribute_file_not_found(self, cli_project):
         runner, _, _ = cli_project
@@ -710,11 +630,6 @@ class TestErrorHandling:
         result = runner.invoke(cli, ["status"])
         assert result.exit_code == 1
 
-    def test_already_initialized(self, cli_project):
-        runner, _, bare = cli_project
-        result = runner.invoke(cli, ["init", str(bare), "--no-install"])
-        assert result.exit_code == 1
-
     def test_value_error(self, cli_project):
         runner, _, _ = cli_project
         result = runner.invoke(cli, ["add", "zzzzzzz"])
@@ -723,7 +638,8 @@ class TestErrorHandling:
     def test_runtime_error(self, cli_uninit):
         runner, _, _ = cli_uninit
         result = runner.invoke(
-            cli, ["init", "https://nonexistent.invalid/repo.git", "--no-install"]
+            cli,
+            ["registry", "add", "https://nonexistent.invalid/repo.git", "--no-install"],
         )
         assert result.exit_code == 1
 
@@ -757,11 +673,11 @@ class TestErrorHandling:
         assert result.exit_code == 1
         assert "Corrupted YAML" in result.output
 
-    def test_not_initialized_suggests_init(self, cli_uninit):
+    def test_not_initialized_suggests_registry_add(self, cli_uninit):
         runner, _, _ = cli_uninit
         result = runner.invoke(cli, ["status"])
         assert result.exit_code == 1
-        assert "kt init" in result.output
+        assert "kt registry add" in result.output
 
     def test_not_installed_suggests_status(self, cli_project):
         runner, _, _ = cli_project
@@ -782,25 +698,25 @@ class TestErrorHandling:
 
 
 class TestCliLocalDir:
-    def test_init_from_local_dir(
+    def test_add_from_local_dir(
         self, registry_dir, tmp_path, monkeypatch, cli_runner, _patch_consoles
     ):
         project = tmp_path / "proj-local"
         project.mkdir()
         monkeypatch.chdir(project)
 
-        result = cli_runner.invoke(cli, ["init", str(registry_dir), "--no-install"])
-        assert result.exit_code == 0, f"init failed: {result.output}"
-        assert "Initialized" in result.output
+        result = cli_runner.invoke(cli, ["registry", "add", str(registry_dir), "--no-install"])
+        assert result.exit_code == 0, f"registry add failed: {result.output}"
+        assert "Added" in result.output
 
-    def test_add_after_local_init(
+    def test_add_package_after_local_registry(
         self, registry_dir, tmp_path, monkeypatch, cli_runner, _patch_consoles
     ):
         project = tmp_path / "proj-local"
         project.mkdir()
         monkeypatch.chdir(project)
 
-        cli_runner.invoke(cli, ["init", str(registry_dir), "--no-install"])
+        cli_runner.invoke(cli, ["registry", "add", str(registry_dir), "--no-install"])
         result = cli_runner.invoke(cli, ["add", "base"])
         assert result.exit_code == 0
         assert "base" in result.output
@@ -812,14 +728,14 @@ class TestCliLocalDir:
         project.mkdir()
         monkeypatch.chdir(project)
 
-        cli_runner.invoke(cli, ["init", str(registry_dir), "--no-install"])
+        cli_runner.invoke(cli, ["registry", "add", str(registry_dir), "--no-install"])
         result = cli_runner.invoke(cli, ["update"])
         assert result.exit_code == 0
         assert "Updated from local directory" in result.output
 
 
 class TestCliArchive:
-    def test_init_from_archive(
+    def test_add_from_archive(
         self,
         registry_archive_tar_gz,
         tmp_path,
@@ -831,9 +747,11 @@ class TestCliArchive:
         project.mkdir()
         monkeypatch.chdir(project)
 
-        result = cli_runner.invoke(cli, ["init", str(registry_archive_tar_gz), "--no-install"])
-        assert result.exit_code == 0, f"init failed: {result.output}"
-        assert "Initialized" in result.output
+        result = cli_runner.invoke(
+            cli, ["registry", "add", str(registry_archive_tar_gz), "--no-install"]
+        )
+        assert result.exit_code == 0, f"registry add failed: {result.output}"
+        assert "Added" in result.output
 
     def test_contribute_non_git_error(
         self, registry_dir, tmp_path, monkeypatch, cli_runner, _patch_consoles
@@ -842,7 +760,7 @@ class TestCliArchive:
         project.mkdir()
         monkeypatch.chdir(project)
 
-        cli_runner.invoke(cli, ["init", str(registry_dir), "--no-install"])
+        cli_runner.invoke(cli, ["registry", "add", str(registry_dir), "--no-install"])
 
         contrib = tmp_path / "my.md"
         contrib.write_text("# Test\n")

@@ -22,7 +22,7 @@ def cli_project(registry_repo, tmp_path):
     project.mkdir()
 
     engine = KnowledgeTreeEngine(project)
-    engine.init(str(bare), branch="main")
+    engine.add_registry(str(bare), name="default", branch="main", install_packages=False)
     engine.set_config("export_format", "claude-code")
     engine.add_package("api-patterns")  # installs base + api-patterns (auto-exports)
 

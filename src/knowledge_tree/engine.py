@@ -64,7 +64,7 @@ class KnowledgeTreeEngine:
 
     def _load_config(self) -> ProjectConfig:
         if not self.config_path.exists():
-            raise FileNotFoundError("Not initialized. Run `kt init <url>` first.")
+            raise FileNotFoundError("Not initialized. Run `kt registry add <url>` first.")
         self._migrate_if_needed()
         config = ProjectConfig.from_yaml_file(self.config_path)
         # Auto-save if migrated from old format (registries list wasn't in file)
@@ -114,7 +114,7 @@ class KnowledgeTreeEngine:
         registry_yaml = cache_dir / "registry.yaml"
         if not registry_yaml.exists():
             raise FileNotFoundError(
-                f"Registry cache for '{registry_name}' not found. Run `kt init <url>` first."
+                f"Registry cache for '{registry_name}' not found. Run `kt registry add <url>` first."
             )
         return Registry.from_yaml_file(registry_yaml)
 
@@ -171,69 +171,21 @@ class KnowledgeTreeEngine:
         return src
 
     # ------------------------------------------------------------------
-    # init
+    # _ensure_initialized
     # ------------------------------------------------------------------
 
-    def init(
-        self,
-        registry_url: str | None = None,
-        branch: str = "main",
-        source_type: str | None = None,
-        registry_name: str = "default",
-    ) -> list[str]:
-        """Initialize a Knowledge Tree project.
+    def _ensure_initialized(self) -> None:
+        """Ensure .knowledge-tree/ exists with an empty kt.yaml.
 
-        Creates .knowledge-tree/ with kt.yaml and a .gitignore containing '*'.
-        When *registry_url* is provided, populates the registry cache and
-        returns the list of available packages.
-        When *registry_url* is ``None``, creates an empty project and returns [].
-        Raises FileExistsError if already initialized.
+        Idempotent — returns immediately if already initialized.
         """
         if self.knowledge_tree_dir.exists():
-            raise FileExistsError(
-                "Already initialized. Remove .knowledge-tree/ directory to re-initialize."
-            )
+            return
 
         self.knowledge_tree_dir.mkdir(parents=True)
         _ensure_dir_gitignore(self.knowledge_tree_dir)
-
-        if registry_url is None:
-            config = ProjectConfig(registries=[], packages=[])
-            config.to_yaml_file(self.config_path)
-            return []
-
-        if source_type is None:
-            source_type = registry_source.detect_source_type(registry_url)
-
-        cache_dir = self._registry_cache_dir(registry_name)
-        try:
-            registry_source.populate_cache(
-                source=registry_url,
-                dest=cache_dir,
-                branch=branch,
-                source_type=source_type,
-            )
-        except (RuntimeError, OSError, ValueError):
-            # Population failed — clean up partial state so user can retry
-            shutil.rmtree(self.knowledge_tree_dir, ignore_errors=True)
-            raise
-
-        registry = self._load_registry(registry_name)
-        reg_id = self._resolve_registry_id(registry)
-        reg = RegistrySource(
-            id=reg_id,
-            name=registry_name,
-            source=registry_url,
-            ref=branch if source_type == "git" else "",
-            type=source_type,
-        )
-        config = ProjectConfig(
-            registries=[reg],
-            packages=[],
-        )
+        config = ProjectConfig(registries=[], packages=[])
         config.to_yaml_file(self.config_path)
-
-        return sorted(registry.packages.keys())
 
     # ------------------------------------------------------------------
     # add_registry
@@ -262,8 +214,8 @@ class KnowledgeTreeEngine:
         result = RegistryAddResult()
 
         # Auto-init if .knowledge-tree/ doesn't exist
-        if not self.knowledge_tree_dir.exists():
-            self.init()
+        was_fresh = not self.knowledge_tree_dir.exists()
+        self._ensure_initialized()
 
         # Auto-derive name from URL if not provided
         if name is None:
@@ -290,12 +242,17 @@ class KnowledgeTreeEngine:
             source_type = registry_source.detect_source_type(source)
             cache_dir = self._registry_cache_dir(name)
 
-            registry_source.populate_cache(
-                source=source,
-                dest=cache_dir,
-                branch=branch,
-                source_type=source_type,
-            )
+            try:
+                registry_source.populate_cache(
+                    source=source,
+                    dest=cache_dir,
+                    branch=branch,
+                    source_type=source_type,
+                )
+            except (RuntimeError, OSError, ValueError):
+                if was_fresh:
+                    shutil.rmtree(self.knowledge_tree_dir, ignore_errors=True)
+                raise
 
             registry_obj = self._load_registry(name)
             reg_id = self._resolve_registry_id(registry_obj, config)
@@ -384,8 +341,8 @@ class KnowledgeTreeEngine:
         preview = RegistryPreview()
 
         # Auto-init if .knowledge-tree/ doesn't exist
-        if not self.knowledge_tree_dir.exists():
-            self.init()
+        was_fresh = not self.knowledge_tree_dir.exists()
+        self._ensure_initialized()
 
         # Auto-derive name from URL if not provided
         if name is None:
@@ -412,12 +369,17 @@ class KnowledgeTreeEngine:
             source_type = registry_source.detect_source_type(source)
             cache_dir = self._registry_cache_dir(name)
 
-            registry_source.populate_cache(
-                source=source,
-                dest=cache_dir,
-                branch=branch,
-                source_type=source_type,
-            )
+            try:
+                registry_source.populate_cache(
+                    source=source,
+                    dest=cache_dir,
+                    branch=branch,
+                    source_type=source_type,
+                )
+            except (RuntimeError, OSError, ValueError):
+                if was_fresh:
+                    shutil.rmtree(self.knowledge_tree_dir, ignore_errors=True)
+                raise
 
             registry_obj = self._load_registry(name)
             reg_id = self._resolve_registry_id(registry_obj, config)

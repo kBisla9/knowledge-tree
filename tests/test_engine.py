@@ -39,20 +39,20 @@ def initialized_project(
     project = tmp_path / "my-project"
     project.mkdir()
     engine = KnowledgeTreeEngine(project)
-    engine.init(str(bare), branch="main")
+    engine.add_registry(str(bare), name="default", branch="main", install_packages=False)
     return engine, project
 
 
 # ---------------------------------------------------------------------------
-# init
+# add_registry (auto-init)
 # ---------------------------------------------------------------------------
 
 
-class TestInit:
+class TestAddRegistryAutoInit:
     def test_creates_directories(self, registry_repo: tuple[Path, Path], project_dir: Path):
         bare, _ = registry_repo
         engine = KnowledgeTreeEngine(project_dir)
-        engine.init(str(bare), branch="main")
+        engine.add_registry(str(bare), name="default", branch="main", install_packages=False)
 
         assert (project_dir / ".knowledge-tree").is_dir()
         assert (project_dir / ".knowledge-tree" / "kt.yaml").exists()
@@ -61,10 +61,10 @@ class TestInit:
         assert gitignore.exists()
         assert gitignore.read_text().strip() == "*"
 
-    def test_clones_registry(self, registry_repo: tuple[Path, Path], project_dir: Path):
+    def test_caches_registry(self, registry_repo: tuple[Path, Path], project_dir: Path):
         bare, _ = registry_repo
         engine = KnowledgeTreeEngine(project_dir)
-        engine.init(str(bare), branch="main")
+        engine.add_registry(str(bare), name="default", branch="main", install_packages=False)
 
         cache = project_dir / ".knowledge-tree" / "cache" / "default"
         assert cache.is_dir()
@@ -73,18 +73,18 @@ class TestInit:
     def test_returns_available_packages(self, registry_repo: tuple[Path, Path], project_dir: Path):
         bare, _ = registry_repo
         engine = KnowledgeTreeEngine(project_dir)
-        packages = engine.init(str(bare), branch="main")
+        result = engine.add_registry(
+            str(bare), name="default", branch="main", install_packages=False
+        )
 
-        assert "base" in packages
-        assert "git-conventions" in packages
-        assert "api-patterns" in packages
+        assert "base" in result.available_packages
+        assert "git-conventions" in result.available_packages
+        assert "api-patterns" in result.available_packages
 
     def test_saves_config(self, registry_repo: tuple[Path, Path], project_dir: Path):
         bare, _ = registry_repo
         engine = KnowledgeTreeEngine(project_dir)
-        engine.init(str(bare), branch="main")
-
-        from knowledge_tree.models import ProjectConfig
+        engine.add_registry(str(bare), name="default", branch="main", install_packages=False)
 
         config = ProjectConfig.from_yaml_file(project_dir / ".knowledge-tree" / "kt.yaml")
         assert len(config.registries) == 1
@@ -93,57 +93,33 @@ class TestInit:
         assert config.registries[0].name == "default"
         assert config.registries[0].id != ""
 
-    def test_already_initialized_error(self, registry_repo: tuple[Path, Path], project_dir: Path):
-        bare, _ = registry_repo
-        engine = KnowledgeTreeEngine(project_dir)
-        engine.init(str(bare), branch="main")
-
-        with pytest.raises(FileExistsError, match="Already initialized"):
-            engine.init(str(bare), branch="main")
-
-    def test_init_cleans_up_on_clone_failure(
-        self, registry_repo: tuple[Path, Path], project_dir: Path
-    ):
+    def test_cleans_up_on_clone_failure(self, registry_repo: tuple[Path, Path], project_dir: Path):
         bare, _ = registry_repo
         engine = KnowledgeTreeEngine(project_dir)
 
-        # Attempt init with a bad URL — should fail and clean up
+        # Attempt with a bad URL — should fail and clean up
         with pytest.raises(RuntimeError):
-            engine.init("file:///nonexistent/repo.git", branch="main")
+            engine.add_registry("file:///nonexistent/repo.git", branch="main")
 
         # .knowledge-tree/ should NOT exist (cleaned up)
         assert not (project_dir / ".knowledge-tree").exists()
 
         # Retry with the correct URL — should succeed
-        packages = engine.init(str(bare), branch="main")
-        assert "base" in packages
+        result = engine.add_registry(
+            str(bare), name="default", branch="main", install_packages=False
+        )
+        assert "base" in result.available_packages
 
-    def test_init_with_custom_name(self, registry_repo: tuple[Path, Path], project_dir: Path):
+    def test_custom_name(self, registry_repo: tuple[Path, Path], project_dir: Path):
         bare, _ = registry_repo
         engine = KnowledgeTreeEngine(project_dir)
-        engine.init(str(bare), branch="main", registry_name="primary")
+        engine.add_registry(str(bare), name="primary", branch="main", install_packages=False)
 
         cache = project_dir / ".knowledge-tree" / "cache" / "primary"
         assert cache.is_dir()
 
-        from knowledge_tree.models import ProjectConfig
-
         config = ProjectConfig.from_yaml_file(project_dir / ".knowledge-tree" / "kt.yaml")
         assert config.registries[0].name == "primary"
-
-    def test_empty_init(self, project_dir: Path):
-        engine = KnowledgeTreeEngine(project_dir)
-        packages = engine.init()
-
-        assert packages == []
-        assert (project_dir / ".knowledge-tree").is_dir()
-        assert (project_dir / ".knowledge-tree" / "kt.yaml").exists()
-
-        from knowledge_tree.models import ProjectConfig
-
-        config = ProjectConfig.from_yaml_file(project_dir / ".knowledge-tree" / "kt.yaml")
-        assert config.registries == []
-        assert config.packages == []
 
 
 # ---------------------------------------------------------------------------
@@ -293,7 +269,7 @@ class TestUpdate:
         project = tmp_path / "my-project"
         project.mkdir()
         engine = KnowledgeTreeEngine(project)
-        engine.init(str(bare), branch="main")
+        engine.add_registry(str(bare), name="default", branch="main", install_packages=False)
         engine.add_package("base")
 
         # Push a change to the registry
@@ -316,7 +292,7 @@ class TestUpdate:
         project = tmp_path / "my-project"
         project.mkdir()
         engine = KnowledgeTreeEngine(project)
-        engine.init(str(bare), branch="main")
+        engine.add_registry(str(bare), name="default", branch="main", install_packages=False)
         engine.add_package("base")
 
         result = engine.update()
@@ -331,7 +307,7 @@ class TestUpdate:
         project = tmp_path / "my-project"
         project.mkdir()
         engine = KnowledgeTreeEngine(project)
-        engine.init(str(bare), branch="main")
+        engine.add_registry(str(bare), name="default", branch="main", install_packages=False)
         engine.add_package("base")  # install only base
 
         # git-conventions is evergreen and not installed
@@ -347,7 +323,7 @@ class TestUpdate:
         project = tmp_path / "my-project"
         project.mkdir()
         engine = KnowledgeTreeEngine(project)
-        engine.init(str(bare), branch="main")
+        engine.add_registry(str(bare), name="default", branch="main", install_packages=False)
         engine.add_package("base")
         engine.add_package("git-conventions")
 
@@ -365,7 +341,7 @@ class TestUpdate:
         project = tmp_path / "my-project"
         project.mkdir()
         engine = KnowledgeTreeEngine(project)
-        engine.init(str(bare), branch="main")
+        engine.add_registry(str(bare), name="default", branch="main", install_packages=False)
 
         with pytest.raises(ValueError, match="not installed"):
             engine.update(package_name="base")
@@ -628,7 +604,7 @@ class TestContribute:
         project = tmp_path / "contrib-project"
         project.mkdir()
         engine = KnowledgeTreeEngine(project)
-        engine.init(str(bare), branch="main")
+        engine.add_registry(str(bare), name="default", branch="main", install_packages=False)
         return engine, project, bare
 
     @staticmethod
@@ -758,7 +734,7 @@ class TestContribute:
         project.mkdir()
         engine = KnowledgeTreeEngine(project)
         # Init does a shallow clone by default; unshallow it manually first
-        engine.init(str(bare), branch="main")
+        engine.add_registry(str(bare), name="default", branch="main", install_packages=False)
         from knowledge_tree import git_ops
 
         git_ops.unshallow(engine._registry_cache_dir("default"))
@@ -945,23 +921,23 @@ class TestRegistryRebuild:
 # ---------------------------------------------------------------------------
 
 
-class TestInitLocalDirectory:
-    def test_init_from_local_dir(self, registry_dir: Path, tmp_path: Path):
+class TestLocalDirectory:
+    def test_add_from_local_dir(self, registry_dir: Path, tmp_path: Path):
         project = tmp_path / "proj-local"
         project.mkdir()
         engine = KnowledgeTreeEngine(project)
-        packages = engine.init(str(registry_dir))
+        result = engine.add_registry(str(registry_dir), name="default", install_packages=False)
 
-        assert "base" in packages
-        assert "git-conventions" in packages
-        assert "api-patterns" in packages
+        assert "base" in result.available_packages
+        assert "git-conventions" in result.available_packages
+        assert "api-patterns" in result.available_packages
         assert (project / ".knowledge-tree" / "cache" / "default" / "registry.yaml").exists()
 
     def test_config_has_local_type(self, registry_dir: Path, tmp_path: Path):
         project = tmp_path / "proj-local"
         project.mkdir()
         engine = KnowledgeTreeEngine(project)
-        engine.init(str(registry_dir))
+        engine.add_registry(str(registry_dir), name="default", install_packages=False)
 
         from knowledge_tree.models import ProjectConfig
 
@@ -973,7 +949,7 @@ class TestInitLocalDirectory:
         project = tmp_path / "proj-local"
         project.mkdir()
         engine = KnowledgeTreeEngine(project)
-        engine.init(str(registry_dir))
+        engine.add_registry(str(registry_dir), name="default", install_packages=False)
         result = engine.add_package("base")
 
         assert "base" in result.installed
@@ -987,7 +963,7 @@ class TestInitLocalDirectory:
         project = tmp_path / "proj-local"
         project.mkdir()
         engine = KnowledgeTreeEngine(project)
-        engine.init(str(registry_dir))
+        engine.add_registry(str(registry_dir), name="default", install_packages=False)
         engine.add_package("base")
 
         # Add a new file to source
@@ -1021,29 +997,37 @@ class TestInitLocalDirectory:
         assert info.name == "new-pkg"
 
 
-class TestInitArchive:
-    def test_init_from_tar_gz(self, registry_archive_tar_gz: Path, tmp_path: Path):
+class TestArchive:
+    def test_add_from_tar_gz(self, registry_archive_tar_gz: Path, tmp_path: Path):
         project = tmp_path / "proj-archive"
         project.mkdir()
         engine = KnowledgeTreeEngine(project)
-        packages = engine.init(str(registry_archive_tar_gz))
+        result = engine.add_registry(
+            str(registry_archive_tar_gz), name="default", install_packages=False
+        )
 
-        assert "base" in packages
+        assert "base" in result.available_packages
         assert (project / ".knowledge-tree" / "cache" / "default" / "registry.yaml").exists()
 
-    def test_init_from_zip(self, registry_archive_zip: Path, tmp_path: Path):
+    def test_add_from_zip(self, registry_archive_zip: Path, tmp_path: Path):
         project = tmp_path / "proj-zip"
         project.mkdir()
         engine = KnowledgeTreeEngine(project)
-        packages = engine.init(str(registry_archive_zip))
+        result = engine.add_registry(
+            str(registry_archive_zip), name="default", install_packages=False
+        )
+        packages = result.available_packages
 
         assert "base" in packages
 
-    def test_init_from_nested_archive(self, registry_archive_nested: Path, tmp_path: Path):
+    def test_add_from_nested_archive(self, registry_archive_nested: Path, tmp_path: Path):
         project = tmp_path / "proj-nested"
         project.mkdir()
         engine = KnowledgeTreeEngine(project)
-        packages = engine.init(str(registry_archive_nested))
+        result = engine.add_registry(
+            str(registry_archive_nested), name="default", install_packages=False
+        )
+        packages = result.available_packages
 
         assert "base" in packages
         assert (project / ".knowledge-tree" / "cache" / "default" / "packages" / "base").is_dir()
@@ -1052,7 +1036,7 @@ class TestInitArchive:
         project = tmp_path / "proj-archive"
         project.mkdir()
         engine = KnowledgeTreeEngine(project)
-        engine.init(str(registry_archive_tar_gz))
+        engine.add_registry(str(registry_archive_tar_gz), name="default", install_packages=False)
 
         from knowledge_tree.models import ProjectConfig
 
@@ -1064,7 +1048,7 @@ class TestInitArchive:
         project = tmp_path / "proj-archive"
         project.mkdir()
         engine = KnowledgeTreeEngine(project)
-        engine.init(str(registry_archive_tar_gz))
+        engine.add_registry(str(registry_archive_tar_gz), name="default", install_packages=False)
         engine.add_package("base")
 
         from knowledge_tree.models import ProjectConfig
@@ -1081,7 +1065,7 @@ class TestContributeNonGit:
         project = tmp_path / "proj-local"
         project.mkdir()
         engine = KnowledgeTreeEngine(project)
-        engine.init(str(registry_dir))
+        engine.add_registry(str(registry_dir), name="default", install_packages=False)
 
         contrib_file = tmp_path / "my-knowledge.md"
         contrib_file.write_text("# My Knowledge\n")
@@ -1093,7 +1077,7 @@ class TestContributeNonGit:
         project = tmp_path / "proj-archive"
         project.mkdir()
         engine = KnowledgeTreeEngine(project)
-        engine.init(str(registry_archive_tar_gz))
+        engine.add_registry(str(registry_archive_tar_gz), name="default", install_packages=False)
 
         contrib_file = tmp_path / "my-knowledge.md"
         contrib_file.write_text("# My Knowledge\n")
@@ -1117,7 +1101,7 @@ class TestMultiRegistry:
         project = tmp_path / "multi-project"
         project.mkdir()
         engine = KnowledgeTreeEngine(project)
-        engine.init(str(bare1), branch="main", registry_name="public")
+        engine.add_registry(str(bare1), name="public", branch="main", install_packages=False)
         engine.add_registry(str(bare2), name="internal", branch="main", install_packages=False)
         return engine, project
 
@@ -1215,13 +1199,13 @@ class TestMultiRegistry:
 
 
 class TestCanonicalRegistryId:
-    def test_init_uses_canonical_id(self, registry_repo, tmp_path):
+    def test_add_registry_uses_canonical_id_on_fresh_project(self, registry_repo, tmp_path):
         """init() should read the id from registry.yaml."""
         bare, _ = registry_repo
         project = tmp_path / "proj"
         project.mkdir()
         engine = KnowledgeTreeEngine(project)
-        engine.init(str(bare), branch="main")
+        engine.add_registry(str(bare), name="default", branch="main", install_packages=False)
 
         config = ProjectConfig.from_yaml_file(project / ".knowledge-tree" / "kt.yaml")
         assert config.registries[0].id == "7348a577b60f490ba872367ed8e41371"
@@ -1232,7 +1216,6 @@ class TestCanonicalRegistryId:
         project = tmp_path / "proj"
         project.mkdir()
         engine = KnowledgeTreeEngine(project)
-        engine.init()
         engine.add_registry(str(bare), name="test-reg", branch="main", install_packages=False)
 
         config = ProjectConfig.from_yaml_file(project / ".knowledge-tree" / "kt.yaml")
@@ -1246,7 +1229,6 @@ class TestCanonicalRegistryId:
         project = tmp_path / "proj"
         project.mkdir()
         engine = KnowledgeTreeEngine(project)
-        engine.init()
         engine.preview_registry(str(bare), name="test-reg", branch="main")
 
         config = ProjectConfig.from_yaml_file(project / ".knowledge-tree" / "kt.yaml")
@@ -1274,7 +1256,7 @@ class TestCanonicalRegistryId:
         )
 
         with pytest.raises(ValueError, match="'id' is required"):
-            engine.init(str(reg_dir))
+            engine.add_registry(str(reg_dir), install_packages=False)
 
     def test_invalid_id_raises(self, tmp_path):
         """Registry with non-UUID id should be rejected."""
@@ -1299,7 +1281,7 @@ class TestCanonicalRegistryId:
         )
 
         with pytest.raises(ValueError, match="32-character lowercase hex"):
-            engine.init(str(reg_dir))
+            engine.add_registry(str(reg_dir), install_packages=False)
 
     def test_id_collision_raises(self, registry_repo, second_registry_repo, tmp_path):
         """Two registries with the same id should error on second add."""
@@ -1328,7 +1310,7 @@ class TestCanonicalRegistryId:
         project = tmp_path / "proj"
         project.mkdir()
         engine = KnowledgeTreeEngine(project)
-        engine.init(str(bare), branch="main")
+        engine.add_registry(str(bare), name="default", branch="main", install_packages=False)
 
         with pytest.raises(ValueError, match="collides with existing"):
             engine.add_registry(str(bare2), branch="main", name="internal")
@@ -1339,7 +1321,7 @@ class TestCanonicalRegistryId:
         project = tmp_path / "proj"
         project.mkdir()
         engine = KnowledgeTreeEngine(project)
-        engine.init(str(bare), branch="main")
+        engine.add_registry(str(bare), name="default", branch="main", install_packages=False)
         engine.add_package("base")
 
         config = ProjectConfig.from_yaml_file(project / ".knowledge-tree" / "kt.yaml")
