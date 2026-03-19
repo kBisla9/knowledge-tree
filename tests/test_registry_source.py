@@ -14,6 +14,7 @@ from knowledge_tree.registry_source import (
     _safe_zip_extract,
     detect_source_type,
     populate_cache,
+    strip_source_suffix,
 )
 
 # ---------------------------------------------------------------------------
@@ -54,6 +55,21 @@ class TestDetectSourceType:
         archive = tmp_path / "registry.zip"
         archive.write_bytes(b"fake")
         assert detect_source_type(str(archive)) == "archive"
+
+    def test_remote_archive_tar_gz_url(self) -> None:
+        url = "https://github.com/user/repo/archive/refs/heads/main.tar.gz"
+        assert detect_source_type(url) == "archive"
+
+    def test_remote_archive_tgz_url(self) -> None:
+        url = "https://example.com/registry.tgz"
+        assert detect_source_type(url) == "archive"
+
+    def test_remote_archive_zip_url(self) -> None:
+        url = "http://example.com/registry.zip"
+        assert detect_source_type(url) == "archive"
+
+    def test_https_url_without_archive_ext_is_git(self) -> None:
+        assert detect_source_type("https://github.com/user/repo") == "git"
 
     def test_archive_extension_nonexistent_file(self, tmp_path: Path) -> None:
         """A .tar.gz path that doesn't exist should raise ValueError."""
@@ -234,6 +250,59 @@ class TestPopulateCache:
     def test_unknown_type_raises(self, tmp_path: Path) -> None:
         with pytest.raises(ValueError, match="Unknown source type"):
             populate_cache(str(tmp_path), tmp_path / "cache", "", "ftp")
+
+
+# ---------------------------------------------------------------------------
+# strip_source_suffix
+# ---------------------------------------------------------------------------
+
+
+class TestStripSourceSuffix:
+    def test_strip_tar_gz(self) -> None:
+        assert strip_source_suffix("my-registry.tar.gz") == "my-registry"
+
+    def test_strip_tgz(self) -> None:
+        assert strip_source_suffix("my-registry.tgz") == "my-registry"
+
+    def test_strip_zip(self) -> None:
+        assert strip_source_suffix("my-registry.zip") == "my-registry"
+
+    def test_strip_git(self) -> None:
+        assert strip_source_suffix("my-repo.git") == "my-repo"
+
+    def test_no_suffix(self) -> None:
+        assert strip_source_suffix("my-registry") == "my-registry"
+
+    def test_tar_gz_url_basename(self) -> None:
+        assert strip_source_suffix("main.tar.gz") == "main"
+
+
+# ---------------------------------------------------------------------------
+# populate_cache — remote archive (mocked download)
+# ---------------------------------------------------------------------------
+
+
+class TestPopulateCacheRemoteArchive:
+    def test_remote_archive_downloads_and_extracts(
+        self, registry_archive_tar_gz: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Simulate a remote archive URL by monkeypatching urllib."""
+        import io
+
+        import knowledge_tree.registry_source as rs
+
+        archive_bytes = registry_archive_tar_gz.read_bytes()
+
+        def fake_urlopen(url):
+            return io.BytesIO(archive_bytes)
+
+        monkeypatch.setattr(rs.urllib.request, "urlopen", fake_urlopen)
+
+        dest = tmp_path / "cache"
+        ref = populate_cache("https://example.com/my-registry.tar.gz", dest, "", "archive")
+        assert len(ref) == 7
+        assert (dest / "registry.yaml").exists()
+        assert (dest / "packages" / "base" / "package.yaml").exists()
 
 
 # refresh_cache removed — update now uses nuke-and-reclone via populate_cache

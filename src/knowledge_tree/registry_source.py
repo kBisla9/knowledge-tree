@@ -3,7 +3,7 @@
 Supports three source types:
   - "git": remote or local git repository
   - "local": plain directory (no git)
-  - "archive": .tar.gz, .tgz, or .zip file
+  - "archive": .tar.gz, .tgz, or .zip file (local path or remote URL)
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ import hashlib
 import shutil
 import tarfile
 import tempfile
+import urllib.request
 import zipfile
 from pathlib import Path
 
@@ -27,8 +28,14 @@ def detect_source_type(source: str) -> str:
     Returns "git", "local", or "archive".
     Raises ValueError if the source cannot be classified.
     """
-    # Archive file (check first — a .tar.gz is a file, not a directory)
-    if any(source.endswith(ext) for ext in ARCHIVE_EXTENSIONS) and Path(source).is_file():
+    has_archive_ext = any(source.endswith(ext) for ext in ARCHIVE_EXTENSIONS)
+
+    # Archive file — local path
+    if has_archive_ext and Path(source).is_file():
+        return "archive"
+
+    # Archive URL — remote download
+    if has_archive_ext and any(source.startswith(p) for p in ("http://", "https://")):
         return "archive"
 
     # URL → git
@@ -68,8 +75,14 @@ def populate_cache(
         return "local"
 
     if source_type == "archive":
-        _extract_archive(Path(source), dest)
-        return _hash_file(Path(source))[:7]
+        archive_path = _resolve_archive(source)
+        try:
+            _extract_archive(archive_path, dest)
+            return _hash_file(archive_path)[:7]
+        finally:
+            # Clean up temp file if we downloaded it
+            if archive_path != Path(source):
+                archive_path.unlink(missing_ok=True)
 
     raise ValueError(f"Unknown source type: {source_type}")
 
@@ -77,6 +90,40 @@ def populate_cache(
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+
+def _resolve_archive(source: str) -> Path:
+    """Return a local Path to the archive, downloading if it's a URL."""
+    if any(source.startswith(p) for p in ("http://", "https://")):
+        return _download_archive(source)
+    return Path(source)
+
+
+def _download_archive(url: str) -> Path:
+    """Download a remote archive to a temporary file and return its path."""
+    # Determine suffix for the temp file
+    suffix = ".tar.gz"
+    for ext in ARCHIVE_EXTENSIONS:
+        if url.endswith(ext):
+            suffix = ext
+            break
+
+    tmp_fd, tmp_name = tempfile.mkstemp(suffix=suffix)
+    try:
+        with urllib.request.urlopen(url) as resp, open(tmp_fd, "wb") as tmp_f:
+            shutil.copyfileobj(resp, tmp_f)
+        return Path(tmp_name)
+    except Exception:
+        Path(tmp_name).unlink(missing_ok=True)
+        raise
+
+
+def strip_source_suffix(name: str) -> str:
+    """Strip known source suffixes (.git, archive extensions) from a name."""
+    for ext in ARCHIVE_EXTENSIONS:
+        if name.endswith(ext):
+            return name[: -len(ext)]
+    return name.replace(".git", "")
 
 
 def _copy_directory(src: Path, dest: Path) -> None:

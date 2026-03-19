@@ -268,7 +268,8 @@ class KnowledgeTreeEngine:
         # Auto-derive name from URL if not provided
         if name is None:
             parts = source.rstrip("/").split("/")
-            name = parts[-1].replace(".git", "") if parts else "default"
+            raw = parts[-1] if parts else "default"
+            name = registry_source.strip_source_suffix(raw)
 
         config = self._load_config()
 
@@ -389,7 +390,8 @@ class KnowledgeTreeEngine:
         # Auto-derive name from URL if not provided
         if name is None:
             parts = source.rstrip("/").split("/")
-            name = parts[-1].replace(".git", "") if parts else "default"
+            raw = parts[-1] if parts else "default"
+            name = registry_source.strip_source_suffix(raw)
 
         config = self._load_config()
 
