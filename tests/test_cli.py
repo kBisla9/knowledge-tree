@@ -772,3 +772,69 @@ class TestCliArchive:
             or "requires git" in result.output
             or "No git" in result.output
         )
+
+
+# ---------------------------------------------------------------------------
+# TestInit
+# ---------------------------------------------------------------------------
+
+
+class TestInit:
+    def test_init_creates_directory_and_exports_builtins(
+        self, tmp_path, monkeypatch, cli_runner, _patch_consoles
+    ):
+        project = tmp_path / "my-project"
+        project.mkdir()
+        monkeypatch.chdir(project)
+
+        result = cli_runner.invoke(cli, ["init", "--format", "claude-code", "--yes"])
+        assert result.exit_code == 0, result.output
+        assert "Initialized Knowledge Tree" in result.output
+        assert (project / ".knowledge-tree" / "kt.yaml").exists()
+        # Built-in command exported
+        assert (project / ".claude" / "skills" / "kt-propose" / "SKILL.md").exists()
+        # Built-in skill exported
+        assert (project / ".claude" / "skills" / "kt-reference" / "SKILL.md").exists()
+        skill_content = (project / ".claude" / "skills" / "kt-reference" / "SKILL.md").read_text()
+        assert "user-invocable: false" in skill_content
+
+    def test_init_idempotent(self, tmp_path, monkeypatch, cli_runner, _patch_consoles):
+        project = tmp_path / "my-project"
+        project.mkdir()
+        monkeypatch.chdir(project)
+
+        result1 = cli_runner.invoke(cli, ["init", "--format", "claude-code", "--yes"])
+        assert result1.exit_code == 0
+        result2 = cli_runner.invoke(cli, ["init", "--format", "claude-code", "--yes"])
+        assert result2.exit_code == 0
+        assert "Initialized Knowledge Tree" in result2.output
+
+    def test_init_yes_requires_format(self, tmp_path, monkeypatch, cli_runner, _patch_consoles):
+        project = tmp_path / "my-project"
+        project.mkdir()
+        monkeypatch.chdir(project)
+
+        result = cli_runner.invoke(cli, ["init", "--yes"])
+        assert result.exit_code == 1
+        assert "--yes requires --format" in result.output
+
+    def test_init_invalid_format(self, tmp_path, monkeypatch, cli_runner, _patch_consoles):
+        project = tmp_path / "my-project"
+        project.mkdir()
+        monkeypatch.chdir(project)
+
+        result = cli_runner.invoke(cli, ["init", "--format", "bad-format", "--yes"])
+        assert result.exit_code == 1
+        assert "Unknown format" in result.output
+
+    def test_init_roo_code(self, tmp_path, monkeypatch, cli_runner, _patch_consoles):
+        project = tmp_path / "my-project"
+        project.mkdir()
+        monkeypatch.chdir(project)
+
+        result = cli_runner.invoke(cli, ["init", "--format", "roo-code", "--yes"])
+        assert result.exit_code == 0
+        # Built-in command exported to roo format
+        assert (project / ".roo" / "commands" / "kt-propose.md").exists()
+        # Built-in skill exported to roo format
+        assert (project / ".roo" / "skills" / "kt-reference" / "SKILL.md").exists()

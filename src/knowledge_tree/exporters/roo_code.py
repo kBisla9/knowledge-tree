@@ -423,6 +423,44 @@ class RooCodeExporter(Exporter):
             files_removed=files_removed,
         )
 
+    def export_builtin_skill(
+        self,
+        skill_name: str,
+        source_path: Path,
+        description: str,
+    ) -> ExportResult:
+        """Export a built-in skill as .roo/skills/<skill_name>/SKILL.md."""
+        skill_dir = self._skills_dir / skill_name
+        skill_md = skill_dir / "SKILL.md"
+        marker = _SKILL_MANAGED_COMMENT.format(
+            registry="_builtins", name="_builtins", skill=skill_name
+        )
+
+        # Conflict check
+        if skill_dir.exists():
+            if skill_md.exists() and marker in skill_md.read_text():
+                pass  # ours — safe to overwrite
+            else:
+                return ExportResult(
+                    package_name="_builtins",
+                    files_skipped=[skill_dir],
+                )
+
+        # Clean and recreate
+        if skill_dir.exists():
+            shutil.rmtree(skill_dir)
+        skill_dir.mkdir(parents=True)
+
+        body = source_path.read_text() if source_path.exists() else ""
+        skill_content = _build_roo_skill_md(
+            skill_name, description, body, marker, source_filename=source_path.name
+        )
+        skill_md.write_text(skill_content)
+        return ExportResult(
+            package_name="_builtins",
+            files_written=[skill_md],
+        )
+
 
 def _build_roo_skill_md(
     skill_name: str,

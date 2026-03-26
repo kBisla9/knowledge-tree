@@ -237,6 +237,55 @@ class ClaudeCodeExporter(Exporter):
             files_removed=files_removed,
         )
 
+    def export_builtin_skill(
+        self,
+        skill_name: str,
+        source_path: Path,
+        description: str,
+    ) -> ExportResult:
+        """Export a built-in skill as .claude/skills/<skill_name>/SKILL.md."""
+        skill_dir = self._skills_dir / skill_name
+        skill_md = skill_dir / "SKILL.md"
+
+        # Conflict check — skip if directory exists but isn't ours
+        if skill_dir.exists():
+            if skill_md.exists() and _MANAGED_MARKER in skill_md.read_text():
+                pass  # ours — safe to overwrite
+            else:
+                return ExportResult(
+                    package_name="_builtins",
+                    files_skipped=[skill_dir],
+                )
+
+        # Clean and recreate
+        if skill_dir.exists():
+            shutil.rmtree(skill_dir)
+        skill_dir.mkdir(parents=True)
+
+        body = source_path.read_text() if source_path.exists() else ""
+        lines: list[str] = [
+            "---",
+            f"name: {skill_name}",
+            f'description: "{description}"',
+            "user-invocable: false",
+            "sources:",
+            f"  - {source_path.name}",
+            "---",
+            "",
+            _MANAGED_MARKER,
+            "",
+            f"<!-- kt-source: {source_path.name} -->",
+            body,
+        ]
+        if body and not body.endswith("\n"):
+            lines.append("")
+
+        skill_md.write_text("\n".join(lines))
+        return ExportResult(
+            package_name="_builtins",
+            files_written=[skill_md],
+        )
+
 
 def _build_command_skill_md(entry: CommandEntry, source_path: Path) -> str:
     """Build SKILL.md for a command (slash command) skill."""

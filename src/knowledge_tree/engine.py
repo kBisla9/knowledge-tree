@@ -311,8 +311,8 @@ class KnowledgeTreeEngine:
                         for cmd in meta.commands:
                             result.commands_installed.append(cmd.name)
 
-            # Export built-in commands alongside packages
-            builtin_cmds = self._export_builtins(tool_format)
+            # Export built-in commands and skills alongside packages
+            builtin_cmds, _builtin_skills = self._export_builtins(tool_format)
             result.commands_installed.extend(builtin_cmds)
 
         # Instantiate registry-level templates
@@ -1186,37 +1186,51 @@ class KnowledgeTreeEngine:
         elif export_format == "roo-code":
             _ensure_dir_gitignore(self.project_root / ".roo")
 
-    def _export_builtins(self, export_format: str) -> list[str]:
-        """Export built-in commands (shipped with kt) to the tool directory.
+    def _export_builtins(self, export_format: str) -> tuple[list[str], list[str]]:
+        """Export built-in commands and skills (shipped with kt) to the tool directory.
 
-        Returns list of exported command names.
+        Returns (commands_exported, skills_exported).
         """
         from importlib.resources import files as pkg_files
 
+        from knowledge_tree.builtins import BUILTINS
         from knowledge_tree.models import CommandEntry
 
         builtins_dir = pkg_files("knowledge_tree.builtins")
         exporter = get_exporter(export_format, self.project_root)
 
-        exported: list[str] = []
-        for resource in builtins_dir.iterdir():
-            if not resource.name.endswith(".md"):
-                continue
-            cmd_name = resource.name.removesuffix(".md")
-            source_path = Path(str(resource))
-            entry = CommandEntry(name=cmd_name, description="")
-            result = exporter.export_commands(
-                package_name="_builtins",
-                commands=[(entry, source_path)],
-                registry_name="_builtins",
-            )
-            if result.files_written:
-                exported.append(cmd_name)
+        commands_exported: list[str] = []
+        skills_exported: list[str] = []
 
-        if exported:
+        for entry in BUILTINS:
+            resource = builtins_dir.joinpath(entry.filename)
+            if not resource.is_file():
+                continue
+            source_path = Path(str(resource))
+            name = entry.filename.removesuffix(".md")
+
+            if entry.content_type == "commands":
+                cmd_entry = CommandEntry(name=name, description=entry.description)
+                result = exporter.export_commands(
+                    package_name="_builtins",
+                    commands=[(cmd_entry, source_path)],
+                    registry_name="_builtins",
+                )
+                if result.files_written:
+                    commands_exported.append(name)
+            elif entry.content_type == "skills":
+                result = exporter.export_builtin_skill(
+                    skill_name=name,
+                    source_path=source_path,
+                    description=entry.description,
+                )
+                if result.files_written:
+                    skills_exported.append(name)
+
+        if commands_exported or skills_exported:
             self._ensure_tool_gitignore(export_format)
 
-        return exported
+        return commands_exported, skills_exported
 
     # ------------------------------------------------------------------
     # export_all
@@ -1245,7 +1259,7 @@ class KnowledgeTreeEngine:
                 skipped.append(name)
             all_warnings.extend(result.warnings)
 
-        # Export built-in commands alongside packages
+        # Export built-in commands and skills alongside packages
         self._export_builtins(export_format)
 
         return ExportAllResult(

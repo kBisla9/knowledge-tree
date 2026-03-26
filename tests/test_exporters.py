@@ -1345,3 +1345,115 @@ class TestClaudeCodeCommandsContentType:
         content = (tmp_path / ".claude" / "skills" / "review" / "SKILL.md").read_text()
         assert "Review all changed files for quality." in content
         assert "name: review" in content
+
+
+# ===========================================================================
+# Built-in skill export
+# ===========================================================================
+
+
+class TestClaudeCodeBuiltinSkill:
+    def test_export_creates_skill_md(self, tmp_path):
+        exporter = ClaudeCodeExporter(tmp_path)
+        source = tmp_path / "kt-reference.md"
+        source.write_text("# Feature Reference\nSome content here.\n")
+
+        result = exporter.export_builtin_skill(
+            skill_name="kt-reference",
+            source_path=source,
+            description="KT CLI reference",
+        )
+
+        assert len(result.files_written) == 1
+        skill_md = tmp_path / ".claude" / "skills" / "kt-reference" / "SKILL.md"
+        assert skill_md.exists()
+        content = skill_md.read_text()
+        assert "user-invocable: false" in content
+        assert 'description: "KT CLI reference"' in content
+        assert "name: kt-reference" in content
+        assert _MANAGED_MARKER in content
+        assert "<!-- kt-source: kt-reference.md -->" in content
+        assert "# Feature Reference" in content
+
+    def test_export_idempotent(self, tmp_path):
+        exporter = ClaudeCodeExporter(tmp_path)
+        source = tmp_path / "kt-reference.md"
+        source.write_text("# V1\n")
+
+        exporter.export_builtin_skill("kt-reference", source, "desc")
+        source.write_text("# V2\n")
+        result = exporter.export_builtin_skill("kt-reference", source, "desc")
+
+        assert len(result.files_written) == 1
+        content = (tmp_path / ".claude" / "skills" / "kt-reference" / "SKILL.md").read_text()
+        assert "# V2" in content
+
+    def test_export_skips_conflict(self, tmp_path):
+        # Pre-create directory without managed marker
+        skill_dir = tmp_path / ".claude" / "skills" / "kt-reference"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text("user-created content")
+
+        exporter = ClaudeCodeExporter(tmp_path)
+        source = tmp_path / "kt-reference.md"
+        source.write_text("# Ref\n")
+
+        result = exporter.export_builtin_skill("kt-reference", source, "desc")
+        assert len(result.files_skipped) == 1
+        assert len(result.files_written) == 0
+        # User content preserved
+        assert (skill_dir / "SKILL.md").read_text() == "user-created content"
+
+
+class TestRooCodeBuiltinSkill:
+    def test_export_creates_skill_md(self, tmp_path):
+        from knowledge_tree.exporters.roo_code import _SKILL_MANAGED_COMMENT
+
+        exporter = RooCodeExporter(tmp_path)
+        source = tmp_path / "kt-reference.md"
+        source.write_text("# Feature Reference\nSome content here.\n")
+
+        result = exporter.export_builtin_skill(
+            skill_name="kt-reference",
+            source_path=source,
+            description="KT CLI reference",
+        )
+
+        assert len(result.files_written) == 1
+        skill_md = tmp_path / ".roo" / "skills" / "kt-reference" / "SKILL.md"
+        assert skill_md.exists()
+        content = skill_md.read_text()
+        assert 'description: "KT CLI reference"' in content
+        assert "name: kt-reference" in content
+        marker = _SKILL_MANAGED_COMMENT.format(
+            registry="_builtins", name="_builtins", skill="kt-reference"
+        )
+        assert marker in content
+        assert "<!-- kt-source: kt-reference.md -->" in content
+        assert "# Feature Reference" in content
+
+    def test_export_idempotent(self, tmp_path):
+        exporter = RooCodeExporter(tmp_path)
+        source = tmp_path / "kt-reference.md"
+        source.write_text("# V1\n")
+
+        exporter.export_builtin_skill("kt-reference", source, "desc")
+        source.write_text("# V2\n")
+        result = exporter.export_builtin_skill("kt-reference", source, "desc")
+
+        assert len(result.files_written) == 1
+        content = (tmp_path / ".roo" / "skills" / "kt-reference" / "SKILL.md").read_text()
+        assert "# V2" in content
+
+    def test_export_skips_conflict(self, tmp_path):
+        skill_dir = tmp_path / ".roo" / "skills" / "kt-reference"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text("user-created content")
+
+        exporter = RooCodeExporter(tmp_path)
+        source = tmp_path / "kt-reference.md"
+        source.write_text("# Ref\n")
+
+        result = exporter.export_builtin_skill("kt-reference", source, "desc")
+        assert len(result.files_skipped) == 1
+        assert len(result.files_written) == 0

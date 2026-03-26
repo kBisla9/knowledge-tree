@@ -46,7 +46,7 @@ def _handle_error(func):
             err_console.print(f"[red]{e}[/red]")
             if "not initialized" in str(e).lower():
                 err_console.print(
-                    "[dim]Run [bold]kt registry add <url>[/bold] to get started.[/dim]"
+                    "[dim]Run [bold]kt init[/bold] or [bold]kt registry add <url>[/bold] to get started.[/dim]"
                 )
             raise SystemExit(1) from None
         except FileExistsError as e:
@@ -869,6 +869,57 @@ def contribute(file: Path, name: str, to_existing: str | None, from_registry: st
     console.print("[green]Contribution prepared![/green]")
     console.print("\nOpen this URL to create a merge/pull request:")
     console.print(f"  [bold blue]{mr_url}[/bold blue]")
+
+
+# ---------------------------------------------------------------------------
+# init
+# ---------------------------------------------------------------------------
+
+
+@cli.command()
+@click.option(
+    "--format",
+    "tool_format",
+    default=None,
+    help=f"Tool format ({_available_formats_str()}).",
+)
+@click.option("--yes", "-y", is_flag=True, help="Skip interactive prompt (requires --format).")
+@_handle_error
+def init(tool_format: str | None, yes: bool):
+    """Initialize Knowledge Tree and export built-in skills.
+
+    Creates .knowledge-tree/ directory, sets the export format,
+    and exports built-in commands and skills. Idempotent.
+    """
+    engine = _get_engine()
+
+    # Resolve format
+    if tool_format is None and not yes:
+        tool_format = _prompt_tool_format(engine)
+    elif tool_format is None and yes:
+        err_console.print("[red]--yes requires --format[/red]")
+        raise SystemExit(1)
+    else:
+        valid_names = [name for name, _ in list_formats()]
+        if tool_format not in valid_names:
+            err_console.print(
+                f"[red]Unknown format: {tool_format}[/red]\n"
+                f"[dim]Available: {', '.join(valid_names)}[/dim]"
+            )
+            raise SystemExit(1)
+
+    engine._ensure_initialized()
+    engine.set_config("export_format", tool_format)
+
+    cmds, skills = engine._export_builtins(tool_format)
+    total = len(cmds) + len(skills)
+
+    console.print("[green]Initialized Knowledge Tree.[/green]")
+    if total:
+        console.print(f"  Exported {total} built-in(s) to {_format_name_for_display(tool_format)}")
+    console.print(
+        "\n[dim]Run [bold]kt registry add <url>[/bold] to add a knowledge registry.[/dim]"
+    )
 
 
 # ---------------------------------------------------------------------------

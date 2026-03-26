@@ -75,6 +75,15 @@ class Exporter(ABC):
         """Remove exported command skills. Default: no-op."""
         return UnexportResult(package_name=package_name)
 
+    def export_builtin_skill(
+        self,
+        skill_name: str,
+        source_path: Path,
+        description: str,
+    ) -> ExportResult:
+        """Export a built-in skill file. Default: no-op."""
+        return ExportResult(package_name="_builtins")
+
     def _resolve_content_type(
         self,
         item: ContentItem,

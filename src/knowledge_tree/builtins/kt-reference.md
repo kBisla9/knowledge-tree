@@ -1,26 +1,9 @@
 # Knowledge Tree — Feature Reference
 
-**Version**: 0.3.1
+**Version**: 0.3.0
 **Last updated**: 2026-03-26
 
 Definitive reference for all Knowledge Tree features — every command, option, model, and behavior.
-
----
-
-## Table of Contents
-
-1. [Overview](#1-overview)
-2. [Installation & Setup](#2-installation--setup)
-3. [Registry Management](#3-registry-management)
-4. [Package Management](#4-package-management)
-5. [Export System](#5-export-system)
-6. [Status & Discovery](#6-status--discovery)
-7. [Registry Authoring](#7-registry-authoring)
-8. [Configuration & Environment](#8-configuration--environment)
-9. [Package Model](#9-package-model)
-10. [Registry Model](#10-registry-model)
-11. [Storage Layout](#11-storage-layout)
-12. [Workflows](#12-workflows)
 
 ---
 
@@ -74,24 +57,21 @@ kt registry add <source> [--name NAME] [--branch BRANCH] [--format FORMAT] [--no
 3. Clones/copies/extracts to `.knowledge-tree/cache/<name>/`
 4. Validates registry ID (32-char hex UUID, no collisions with existing registries)
 5. Shows interactive preview: registry info + package tree with checkboxes
-6. User selects packages via interactive tree (see below)
+6. User selects packages via interactive tree
 7. Installs selected packages (records in `kt.yaml`)
 8. Exports to configured tool format
 9. Instantiates registry-level templates (if any declared in `registry.yaml`)
 10. **Rollback**: if auto-init happened and the add fails, `.knowledge-tree/` is cleaned up (best-effort)
 
 **Interactive package selection:**
-
-After preview, users see a numbered tree of all packages with checkboxes (all selected by default). Interaction:
-- Enter a number to toggle a package on/off
+After preview, users see a numbered tree of all packages with checkboxes (all selected by default).
 - Toggling a child ON auto-selects all its ancestors (since they're required dependencies)
-- `a` = select all, `n` = select none, `d` = done (confirm), `q` = quit (abort)
 - With `--yes`/`-y`, all packages are installed without prompting
 
 **Source type detection:**
-- URLs starting with `https://`, `ssh://`, `git://`, `git@` → **git**
-- Paths ending in `.tar.gz`, `.tgz`, `.zip` → **archive** (local file or remote URL)
-- Existing local directory → **local** (if contains `.git`, treated as git; otherwise plain copy)
+- URLs are recognized as **git** resources
+- Paths ending in archive extensions (.tar.gz, .zip, etc.) are recognized as **archive** resources
+- Local directories are treated depending on the presence of a `.git` folder
 
 **Archive root detection:** When extracting archives, KT looks for `registry.yaml` or `packages/` at the archive root. If not found, it checks one level deep for a single top-level directory containing the registry (common when GitHub generates tarballs with a wrapper directory).
 
@@ -133,7 +113,7 @@ kt add <package> [--from REGISTRY] [--dry-run]
 - Installs all ancestors that aren't already installed
 - Auto-exports if an export format is configured (respects existing user files — does NOT force-overwrite)
 - If the export format isn't set yet, it's auto-persisted to config on first export
-- Fuzzy matching: if the package name isn't found, suggests similar names ("Did you mean: base?") using Levenshtein distance (threshold: 2 edits)
+- Fuzzy matching: if the package name isn't found, suggests similar names ("Did you mean: base?")
 
 ### `kt remove <package>`
 
@@ -239,12 +219,7 @@ content:
 
 ### Managed Markers
 
-Exported files contain HTML comment markers that identify them as KT-managed:
-
-- **Claude Code**: `<!-- Managed by Knowledge Tree — do not edit manually -->`
-- **Roo Code**: `<!-- Managed by Knowledge Tree: registry "name" package "name" [skill/command "name"] -->`
-
-These markers are used for conflict detection during export:
+Exported files contain HTML comment markers that identify them as KT-managed. These markers are used for conflict detection during export:
 - **Marker present**: file was written by KT, safe to overwrite
 - **Marker absent**: file was user-created or user-modified, skipped (unless `force=True`)
 
@@ -269,15 +244,7 @@ Exported files include source tracking metadata that maps inlined content back t
    ---
    ```
 
-2. **Inline `<!-- kt-source: -->` markers** — HTML comments before each inlined file in the body:
-
-   ```markdown
-   <!-- kt-source: file-management.md -->
-   [content of file-management.md]
-
-   <!-- kt-source: safe-deletion.md -->
-   [content of safe-deletion.md]
-   ```
+2. **Inline source tracking markers** — HTML comments placed around inlined file content indicating its source file origin.
 
 **Format-specific details:**
 
@@ -288,7 +255,7 @@ Exported files include source tracking metadata that maps inlined content back t
 | Roo Code (skills) | In SKILL.md YAML frontmatter | Before each section in SKILL.md body |
 | Roo Code (commands) | N/A (one file per command) | After managed comment line |
 
-**Fallback behavior**: If an exported file has no `<!-- kt-source: -->` markers (e.g., exported before v0.3.0), `/kt-propose` falls back to whole-file comparison for single-source packages and asks the user to `kt update` for multi-source packages.
+**Fallback behavior**: If an exported file has no source markers (e.g., exported before v0.3.0), `/kt-propose` falls back to whole-file comparison for single-source packages and asks the user to `kt update` for multi-source packages.
 
 ### Auto-Export Behavior
 
@@ -306,23 +273,6 @@ KT never modifies the project's `.gitignore`. Instead, it creates per-directory 
 - `.claude/.gitignore` (created on first Claude Code export)
 - `.roo/.gitignore` (created on first Roo Code export)
 - Template output directories (if templates create new directories)
-
-### Built-in Commands
-
-KT ships its own slash commands alongside registry-sourced packages. These are bundled in the `builtins/` directory of the Python package (not from any registry).
-
-**Currently shipped built-in commands:**
-
-| Command | Description |
-|---------|-------------|
-| `/kt-propose` | Propose local modifications to exported knowledge files back to their upstream registry |
-
-**How built-in export works:**
-
-- Built-in commands are exported automatically whenever packages are exported (on `kt registry add`, `kt update`, etc.)
-- Claude Code: exported to `.claude/skills/<command-name>/SKILL.md` (top-level, `user-invocable: true`)
-- Roo Code: exported to `.roo/commands/<command-name>.md`
-- Built-in commands are tool-level (not tied to any registry), so they are not unexported on `kt remove` or format switch
 
 ---
 
@@ -382,7 +332,7 @@ Returns a scored results table across all registries. Matches against package na
 
 ### Fuzzy Matching
 
-When a package or registry name isn't found, KT uses Levenshtein distance (threshold: 2 edits) to suggest similar names. This applies to `kt add`, `kt remove`, `kt info`, and `kt search`.
+When a package or registry name isn't found, KT uses fuzzy matching algorithms to suggest similar names. This applies to `kt add`, `kt remove`, `kt info`, and `kt search`.
 
 ---
 
@@ -461,7 +411,7 @@ A built-in slash command that detects local modifications to exported knowledge 
 
 1. **Read config** — Parse `.knowledge-tree/kt.yaml` to find registries, packages, and export format
 2. **Map to cache** — For each installed package, locate its cache source directory via `registry.yaml` paths
-3. **Detect changes** — Parse exported files using `<!-- kt-source: -->` markers to split inlined content back into individual source files, then diff each against the original in the registry cache
+3. **Detect changes** — Parse exported files using source tracking markers to split inlined content back into individual source files, then diff each against the original in the registry cache
 4. **Present changes** — Group by registry and package, show modification summaries
 5. **User selection** — All changes pre-selected; user can deselect, view diffs, or proceed
 6. **Apply changes** — Per registry type:
@@ -661,7 +611,7 @@ A registry is a collection of packages with an index file. It can be hosted as a
 
 - Mandatory 32-char lowercase hex string (e.g., `a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4`)
 - Declared by the registry author in `registry.yaml`
-- Validated on `kt registry add` — checked for format (must match `^[0-9a-f]{32}$`) and collisions with existing registries
+- Validated on `kt registry add` — checked for formatting and collisions with existing registries
 - Provides stable identity across renames, URL changes, and forks
 - `kt author rebuild` preserves the existing ID; auto-generates one if missing
 
@@ -669,13 +619,9 @@ A registry is a collection of packages with an index file. It can be hosted as a
 
 | Type | Detection | Cache strategy | Ref tracking |
 |------|-----------|---------------|--------------|
-| git | URLs with `https://`, `ssh://`, `git://`, `git@`, or local dirs with `.git` | Full clone (push-ready for `/kt-propose`) | Git commit short hash |
+| git | Configured Git URLs or local dirs containing `.git` | Full clone (push-ready for `/kt-propose`) | Git commit short hash |
 | local | Plain directories (no `.git`) | Full copy | `"local"` marker |
-| archive | `.tar.gz`, `.tgz`, `.zip` files (local path or remote URL) | Download (if URL) + extract with path-traversal guards | 7-char content hash |
-
-**Archive safety:** Tar and zip extraction validates all paths against directory traversal (`..` components, absolute paths). Malicious archives are rejected.
-
-**Archive root detection:** After extraction, KT looks for `registry.yaml` or `packages/` at the root. If not found, checks one level deep for a single top-level directory wrapping the registry (common with GitHub-generated tarballs).
+| archive | Archive files (local path or remote URL) | Download (if URL) + extract | Content hash |
 
 ### Templates
 
@@ -853,4 +799,4 @@ kt update
 
 ---
 
-*See [`workspace/sample-registry/`](workspace/sample-registry/) for a complete registry example.*
+*See `workspace/sample-registry/` for a complete registry example.*
