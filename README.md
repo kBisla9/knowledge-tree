@@ -22,7 +22,8 @@ Registries are crowdsourced — teams curate packages for coding conventions, AP
 
 ```bash
 # 1. Install
-pip install knowledge-tree
+pip install knowledge-tree          # PyPI
+brew install kBisla9/tap/knowledge-tree  # Homebrew
 
 # 2. Add a registry (git repo, local directory, or archive — auto-initializes)
 kt registry add https://github.com/your-org/knowledge-registry.git
@@ -54,7 +55,7 @@ Packages are automatically exported to your AI tool's native format (Claude Code
 
 ## Key Concepts
 
-**Packages** — Named bundles of Markdown files with metadata (`package.yaml`). Each package lives in a directory with a name like `base`, `git-conventions`, or `api-patterns`. Packages can contain **knowledge** (context for AI agents) and **commands** (user-invocable slash commands like `/do-thing`).
+**Packages** — Named bundles of Markdown files with metadata (`package.yaml`). Each package lives in a directory with a name like `base`, `git-conventions`, or `api-patterns`. Packages can contain **knowledge** (passive context for AI agents), **skills** (on-demand agent capabilities), and **commands** (user-invocable slash commands like `/do-thing`).
 
 **Registries** — Collections of packages with a `registry.yaml` index, a `packages/` directory (curated), and a `community/` directory (contributions). A registry can be a git repo (remote or local), a plain directory, or an archive file (`.tar.gz`, `.tgz`, `.zip`).
 
@@ -72,7 +73,9 @@ Packages are automatically exported to your AI tool's native format (Claude Code
 
 Use `kt update --format <name>` or `kt update --switch-tool` to change formats (automatically unexports old format and re-exports in new format).
 
-**Zero-Clutter Storage** — All KT state lives in a single `.knowledge-tree/` directory (config at `.knowledge-tree/kt.yaml`, registry caches at `.knowledge-tree/registries/<name>/`). Every directory KT creates gets its own `.gitignore` — nothing is committed to your repo, and your project's `.gitignore` is never modified.
+**Zero-Clutter Storage** — All KT state lives in a single `.knowledge-tree/` directory (config at `.knowledge-tree/kt.yaml`, registry caches at `.knowledge-tree/cache/<name>/`). Every directory KT creates gets its own `.gitignore` — nothing is committed to your repo, and your project's `.gitignore` is never modified.
+
+**Propose Changes Upstream** — Edit exported knowledge files locally, then run the built-in `/kt-propose` slash command. Your AI agent detects changes via source tracking markers, lets you select which to include, and pushes them upstream — as a PR for git registries, or by writing directly for directory registries.
 
 ## Commands
 
@@ -118,20 +121,22 @@ Run `kt --help` or `kt <command> --help` for full options.
 
 ## How It Works
 
-**Adding a registry** — `kt registry add <source>` detects the source type automatically and caches the registry in `.knowledge-tree/registries/<name>/`:
-- **Git repos** — shallow-cloned; tracks commit refs
+**Adding a registry** — `kt registry add <source>` detects the source type automatically and caches the registry in `.knowledge-tree/cache/<name>/`:
+- **Git repos** — full clone (push-ready for `/kt-propose`); tracks commit refs
 - **Local directories** — copied into the cache
 - **Archives** — extracted (handles root-level and nested layouts, with path-traversal protection for tar files)
 
-It auto-initializes the project if needed (creating `.knowledge-tree/kt.yaml`), installs all packages from the registry, exports them to your chosen tool format, and applies any registry templates. Use `--name` to set a custom registry name (auto-derived from URL if omitted). Use `--no-install` to register the source without installing packages.
+It auto-initializes the project if needed (creating `.knowledge-tree/kt.yaml`), shows an interactive preview with a package tree, and lets you select which packages to install. Use `--name` to set a custom registry name (auto-derived from URL if omitted), `--yes`/`-y` to skip confirmation (for CI/scripting), or `--no-install` to register the source without installing packages.
 
-**Multi-registry** — Add more registries with `kt registry add <source> --name <name>`. All storage is namespaced by registry name under `.knowledge-tree/registries/<name>/`. If a package name exists in multiple registries, use `kt add <package> --from <registry>` to disambiguate.
+**Multi-registry** — Add more registries with `kt registry add <source> --name <name>`. All storage is namespaced by registry name under `.knowledge-tree/cache/<name>/`. If a package name exists in multiple registries, use `kt add <package> --from <registry>` to disambiguate.
 
 **Installing packages** — `kt add` resolves the full ancestor chain (walking `parent` links up to the root) and auto-exports content directly from the registry cache to your configured tool format (e.g., `.claude/skills/` for Claude Code, `.roo/rules/` for Roo Code). There is no intermediate step — exporters read from cache and write to tool directories.
 
-**Updating** — `kt update` refreshes the cache from all registries (git pull, directory re-copy, or archive re-extraction), re-exports all installed packages, and alerts you to new evergreen packages you haven't installed yet.
+**Updating** — `kt update` refreshes the cache from all registries (nuke and re-clone for git, re-copy for local, re-extract for archives), re-exports all installed packages, and alerts you to new evergreen packages you haven't installed yet.
 
-**Contributing** — `kt author contribute` is only available for git-backed registries. It creates a branch and prepares a merge request URL.
+**Contributing** — Two ways to contribute back to registries:
+- `kt author contribute` — add a **new** community package (creates branch, commits, pushes, returns PR URL). Git registries only.
+- `/kt-propose` — propose changes to **existing** packages. Edit exported files locally, run the slash command, and your AI agent handles diffing, selection, and pushing upstream.
 
 ## Creating a Registry
 
@@ -171,7 +176,7 @@ content:
 
 See [`workspace/sample-registry/`](workspace/sample-registry/) for a complete example. Use `kt author validate` to check package structure and `kt author rebuild` to regenerate the index.
 
-For detailed guidance on registry creation including templates, content types, and advanced patterns like one-shot wire commands, see the Registry Authoring Guide in the project documentation.
+For detailed guidance on all features, commands, content types, and advanced patterns, see [`FEATURE_REFERENCE.md`](FEATURE_REFERENCE.md).
 
 To distribute a registry without git, you can tar/zip the directory and share the archive file — `kt registry add registry.tar.gz` will extract it automatically.
 
@@ -179,7 +184,7 @@ To distribute a registry without git, you can tar/zip the directory and share th
 
 - **Knowledge packages** — See `CONTRIBUTING.md` in your registry for contribution guidelines
 - **The `kt` tool** — Fork, branch, PR on [GitHub](https://github.com/kBisla9/knowledge-tree)
-- Test suite: 515 tests using real git repos (no mocking), 90% coverage
+- Test suite: 513 tests using real git repos (no mocking), 85% coverage
 
 ## Development
 
