@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 # NOTE: Do NOT publish from this repo. Use scripts/publish-release.sh
 # to push releases to the public kBisla9/knowledge-tree repo.
 name = "knowledge-tree"
-version = "0.2.9"
+version = "0.3.0"
 description = "A crowdsourced knowledge management system for AI agent context"
 readme = "README.md"
 license = {text = "MIT"}
@@ -45,6 +45,9 @@ knowledge-tree = "knowledge_tree.cli:cli"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"knowledge_tree.builtins" = ["*.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

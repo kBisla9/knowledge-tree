@@ -67,7 +67,7 @@ def populate_cache(
     Returns a ref string suitable for config storage.
     """
     if source_type == "git":
-        git_ops.clone(url=source, dest=dest, branch=branch, depth=1)
+        git_ops.clone(url=source, dest=dest, branch=branch, depth=None)
         return git_ops.get_short_ref(dest)
 
     if source_type == "local":

@@ -256,11 +256,14 @@ def _build_command_skill_md(entry: CommandEntry, source_path: Path) -> str:
 
     lines: list[str] = []
 
-    # YAML frontmatter
+    # YAML frontmatter (includes sources for kt-propose reverse-mapping)
     lines.append("---")
     lines.append(f"name: {entry.name}")
     lines.append(f'description: "{description}"')
     lines.append("user-invocable: true")
+    if source_path.exists():
+        lines.append("sources:")
+        lines.append(f"  - {source_path.name}")
     lines.append("---")
     lines.append("")
 
@@ -268,8 +271,9 @@ def _build_command_skill_md(entry: CommandEntry, source_path: Path) -> str:
     lines.append(_MANAGED_MARKER)
     lines.append("")
 
-    # Body: include the full command content
+    # Body: include the full command content with source marker
     if body:
+        lines.append(f"<!-- kt-source: {source_path.name} -->")
         lines.append(body)
         if not body.endswith("\n"):
             lines.append("")
@@ -284,11 +288,15 @@ def _build_skill_md(
     """Build SKILL.md with YAML frontmatter and all content inlined."""
     lines: list[str] = []
 
-    # YAML frontmatter
+    # YAML frontmatter (includes sources list for kt-propose reverse-mapping)
     lines.append("---")
     lines.append(f"name: {metadata.name}")
     lines.append(f'description: "{metadata.description}"')
     lines.append("user-invocable: false")
+    if content_files:
+        lines.append("sources:")
+        for f in content_files:
+            lines.append(f"  - {f.name}")
     lines.append("---")
     lines.append("")
 
@@ -296,8 +304,9 @@ def _build_skill_md(
     lines.append(_MANAGED_MARKER)
     lines.append("")
 
-    # Inline all content files
+    # Inline all content files with source markers
     for i, f in enumerate(content_files):
+        lines.append(f"<!-- kt-source: {f.name} -->")
         body = f.read_text()
         lines.append(body)
         if not body.endswith("\n"):

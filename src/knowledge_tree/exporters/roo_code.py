@@ -186,8 +186,9 @@ class RooCodeExporter(Exporter):
         for i, (_item, src_file) in enumerate(files, start=1):
             dest_name = self._make_filename(package_name, i, src_file.name, registry_name)
             dest_path = self._rules_dir / dest_name
+            source_marker = f"<!-- kt-source: {src_file.name} -->"
             original_content = src_file.read_text()
-            dest_path.write_text(f"{header}\n\n{original_content}")
+            dest_path.write_text(f"{header}\n{source_marker}\n\n{original_content}")
             files_written.append(dest_path)
 
         return ExportResult(
@@ -251,7 +252,9 @@ class RooCodeExporter(Exporter):
 
             # Build SKILL.md with content inlined
             body = src_file.read_text()
-            skill_content = _build_roo_skill_md(skill_name, description, body, marker)
+            skill_content = _build_roo_skill_md(
+                skill_name, description, body, marker, source_filename=src_file.name
+            )
             skill_md.write_text(skill_content)
             files_written.append(skill_md)
 
@@ -294,7 +297,7 @@ class RooCodeExporter(Exporter):
             # Build command entry from content item
             entry = CommandEntry(name=cmd_name, description=item.description)
             body = src_file.read_text()
-            content = _build_roo_command_md(entry, body, marker)
+            content = _build_roo_command_md(entry, body, marker, source_filename=src_file.name)
             dest_path.write_text(content)
             files_written.append(dest_path)
 
@@ -335,7 +338,8 @@ class RooCodeExporter(Exporter):
 
             # Build command file
             body = source_path.read_text() if source_path.exists() else ""
-            content = _build_roo_command_md(entry, body, marker)
+            source_name = source_path.name if source_path.exists() else ""
+            content = _build_roo_command_md(entry, body, marker, source_filename=source_name)
             dest_path.write_text(content)
             files_written.append(dest_path)
 
@@ -425,6 +429,7 @@ def _build_roo_skill_md(
     description: str,
     body: str,
     managed_marker: str,
+    source_filename: str = "",
 ) -> str:
     """Build SKILL.md for a Roo Code skill (Agent Skills standard)."""
     lines: list[str] = []
@@ -433,6 +438,9 @@ def _build_roo_skill_md(
     lines.append("---")
     lines.append(f"name: {skill_name}")
     lines.append(f'description: "{description}"')
+    if source_filename:
+        lines.append("sources:")
+        lines.append(f"  - {source_filename}")
     lines.append("---")
     lines.append("")
 
@@ -440,8 +448,10 @@ def _build_roo_skill_md(
     lines.append(managed_marker)
     lines.append("")
 
-    # Body
+    # Body with source marker
     if body:
+        if source_filename:
+            lines.append(f"<!-- kt-source: {source_filename} -->")
         lines.append(body)
         if not body.endswith("\n"):
             lines.append("")
@@ -453,6 +463,7 @@ def _build_roo_command_md(
     entry: CommandEntry,
     body: str,
     managed_marker: str,
+    source_filename: str = "",
 ) -> str:
     """Build a Roo Code command file (.roo/commands/<name>.md)."""
     lines: list[str] = []
@@ -469,6 +480,9 @@ def _build_roo_command_md(
     if description:
         lines.append("---")
         lines.append(f'description: "{description}"')
+        if source_filename:
+            lines.append("sources:")
+            lines.append(f"  - {source_filename}")
         lines.append("---")
         lines.append("")
 
@@ -476,8 +490,10 @@ def _build_roo_command_md(
     lines.append(managed_marker)
     lines.append("")
 
-    # Body
+    # Body with source marker
     if body:
+        if source_filename:
+            lines.append(f"<!-- kt-source: {source_filename} -->")
         lines.append(body)
         if not body.endswith("\n"):
             lines.append("")

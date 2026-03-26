@@ -783,6 +783,12 @@ def _select_packages(preview: RegistryPreview) -> list[str] | None:
                         selected.discard(name)
                     else:
                         selected.add(name)
+                        # Auto-select ancestors for visual clarity
+                        current = pkg_map[name].parent
+                        while current and current in pkg_map:
+                            if current not in selected:
+                                selected.add(current)
+                            current = pkg_map[current].parent
                 else:
                     console.print(f"[red]Invalid number: {num}[/red]")
         except ValueError:

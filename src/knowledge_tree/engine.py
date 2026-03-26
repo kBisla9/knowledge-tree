@@ -311,6 +311,10 @@ class KnowledgeTreeEngine:
                         for cmd in meta.commands:
                             result.commands_installed.append(cmd.name)
 
+            # Export built-in commands alongside packages
+            builtin_cmds = self._export_builtins(tool_format)
+            result.commands_installed.extend(builtin_cmds)
+
         # Instantiate registry-level templates
         cache_dir = self._registry_cache_dir(name)
         if registry.templates:
@@ -1182,6 +1186,38 @@ class KnowledgeTreeEngine:
         elif export_format == "roo-code":
             _ensure_dir_gitignore(self.project_root / ".roo")
 
+    def _export_builtins(self, export_format: str) -> list[str]:
+        """Export built-in commands (shipped with kt) to the tool directory.
+
+        Returns list of exported command names.
+        """
+        from importlib.resources import files as pkg_files
+
+        from knowledge_tree.models import CommandEntry
+
+        builtins_dir = pkg_files("knowledge_tree.builtins")
+        exporter = get_exporter(export_format, self.project_root)
+
+        exported: list[str] = []
+        for resource in builtins_dir.iterdir():
+            if not resource.name.endswith(".md"):
+                continue
+            cmd_name = resource.name.removesuffix(".md")
+            source_path = Path(str(resource))
+            entry = CommandEntry(name=cmd_name, description="")
+            result = exporter.export_commands(
+                package_name="_builtins",
+                commands=[(entry, source_path)],
+                registry_name="_builtins",
+            )
+            if result.files_written:
+                exported.append(cmd_name)
+
+        if exported:
+            self._ensure_tool_gitignore(export_format)
+
+        return exported
+
     # ------------------------------------------------------------------
     # export_all
     # ------------------------------------------------------------------
@@ -1208,6 +1244,9 @@ class KnowledgeTreeEngine:
             elif result.files_skipped:
                 skipped.append(name)
             all_warnings.extend(result.warnings)
+
+        # Export built-in commands alongside packages
+        self._export_builtins(export_format)
 
         return ExportAllResult(
             exported=exported,
@@ -1369,9 +1408,6 @@ class KnowledgeTreeEngine:
             )
 
         cache_dir = self._registry_cache_dir(reg_source.name)
-
-        # Unshallow the cache so we can push
-        git_ops.unshallow(cache_dir)
 
         # Create branch
         branch_name = f"contribute/{name}"
