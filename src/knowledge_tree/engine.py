@@ -624,7 +624,11 @@ class KnowledgeTreeEngine:
                         if exp_reg:
                             reg_name = exp_reg.name
                     exporter = get_exporter(exp.format, self.project_root)
-                    exporter.unexport_package(package_name, registry_name=reg_name)
+                    exporter.unexport_package(
+                        package_name,
+                        registry_name=reg_name,
+                        mode_slugs=exp.modes,
+                    )
                     exported_formats.append(exp.format)
                 except (ValueError, OSError):
                     pass  # best-effort cleanup
@@ -1166,7 +1170,18 @@ class KnowledgeTreeEngine:
         if result.files_written:
             self._ensure_tool_gitignore(export_format)
             ref = self._get_current_ref(pkg_reg_source) if pkg_reg_source else ""
-            config.add_export(package_name, export_format, ref, registry=pkg_reg_id or "")
+
+            mode_slugs: list[str] = []
+            if meta and meta.modes:
+                mode_slugs = [m.slug for m in meta.modes if m.slug]
+
+            config.add_export(
+                package_name,
+                export_format,
+                ref,
+                registry=pkg_reg_id or "",
+                modes=mode_slugs,
+            )
             # Save default format if not already set
             if not config.export_format:
                 config.export_format = export_format
@@ -1300,7 +1315,11 @@ class KnowledgeTreeEngine:
                     reg_name = reg_source.name
 
             exporter = get_exporter(exp.format, self.project_root)
-            result = exporter.unexport_package(package_name, registry_name=reg_name)
+            result = exporter.unexport_package(
+                package_name,
+                registry_name=reg_name,
+                mode_slugs=exp.modes,
+            )
             files_removed.extend(str(f) for f in result.files_removed)
             config.remove_export(package_name, exp.format)
 

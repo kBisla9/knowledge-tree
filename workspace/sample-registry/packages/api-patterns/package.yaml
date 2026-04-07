@@ -12,3 +12,9 @@ content:
   - rest-conventions.md
   - authentication.md
 created: '2026-01-01'
+
+modes:
+  - slug: api-architect
+    name: API Architect
+    roleDefinition: "You are the API Architect. Ensure all endpoints follow REST best practices, enforce strict authentication, and define clear contract schemas."
+    description: "Design robust REST APIs and enforce authentication standards."

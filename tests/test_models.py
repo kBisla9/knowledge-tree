@@ -10,6 +10,7 @@ from knowledge_tree.models import (
     ContentItem,
     ExportedPackage,
     InstalledPackage,
+    ModeEntry,
     PackageMetadata,
     ProjectConfig,
     Registry,
@@ -1215,3 +1216,99 @@ class TestPackageMetadataContentTypes:
         loaded = PackageMetadata.from_yaml_file(path)
         assert loaded.content_type == ""
         assert loaded.export_hints == {}
+
+
+# ---------------------------------------------------------------------------
+# ModeEntry
+# ---------------------------------------------------------------------------
+
+
+class TestModeEntry:
+    def test_defaults(self):
+        mode = ModeEntry(slug="architect", name="Architect", roleDefinition="You are an architect")
+        assert mode.slug == "architect"
+        assert mode.name == "Architect"
+        assert mode.roleDefinition == "You are an architect"
+        assert mode.whenToUse == ""
+        assert mode.description == ""
+        assert mode.customInstructions == ""
+        assert mode.groups == []
+
+
+class TestPackageMetadataModes:
+    def _valid_meta(self, **overrides) -> PackageMetadata:
+        defaults = dict(
+            name="test-pkg",
+            description="A test package",
+            authors=["Alice"],
+            classification="evergreen",
+        )
+        defaults.update(overrides)
+        return PackageMetadata(**defaults)
+
+    def test_valid_modes(self):
+        meta = self._valid_meta(modes=[ModeEntry(slug="arch", name="Arch", roleDefinition="Def")])
+        assert meta.validate() == []
+
+    def test_modes_missing_slug(self):
+        meta = self._valid_meta(modes=[ModeEntry(name="Arch", roleDefinition="Def")])
+        errors = meta.validate()
+        assert any("'slug' is required" in e for e in errors)
+
+    def test_modes_missing_name(self):
+        meta = self._valid_meta(modes=[ModeEntry(slug="arch", roleDefinition="Def")])
+        errors = meta.validate()
+        assert any("requires a 'name'" in e for e in errors)
+
+    def test_modes_missing_role_definition(self):
+        meta = self._valid_meta(modes=[ModeEntry(slug="arch", name="Arch")])
+        errors = meta.validate()
+        assert any("requires a 'roleDefinition'" in e for e in errors)
+
+    def test_duplicate_slugs(self):
+        meta = self._valid_meta(
+            modes=[
+                ModeEntry(slug="arch", name="A", roleDefinition="1"),
+                ModeEntry(slug="arch", name="B", roleDefinition="2"),
+            ]
+        )
+        errors = meta.validate()
+        assert any("Duplicate mode slug" in e for e in errors)
+
+    def test_kebab_case_slug(self):
+        meta = self._valid_meta(
+            modes=[ModeEntry(slug="Invalid_Slug", name="A", roleDefinition="1")]
+        )
+        errors = meta.validate()
+        assert any("Must be lowercase kebab-case" in e for e in errors)
+
+    def test_invalid_groups(self):
+        meta = self._valid_meta(
+            modes=[ModeEntry(slug="arch", name="A", roleDefinition="1", groups=["bogus"])]
+        )
+        errors = meta.validate()
+        assert any("Invalid group" in e for e in errors)
+
+    def test_yaml_round_trip_modes(self, tmp_path):
+        path = tmp_path / "package.yaml"
+        mode = ModeEntry(
+            slug="arch",
+            name="Architect",
+            roleDefinition="Role",
+            whenToUse="When",
+            description="Desc",
+            customInstructions="Custom",
+            groups=["read"],
+        )
+        meta = self._valid_meta(modes=[mode])
+        meta.to_yaml_file(path)
+        loaded = PackageMetadata.from_yaml_file(path)
+        assert len(loaded.modes) == 1
+        m = loaded.modes[0]
+        assert m.slug == "arch"
+        assert m.name == "Architect"
+        assert m.roleDefinition == "Role"
+        assert m.whenToUse == "When"
+        assert m.description == "Desc"
+        assert m.customInstructions == "Custom"
+        assert m.groups == ["read"]

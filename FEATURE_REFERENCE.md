@@ -1,6 +1,6 @@
 # Knowledge Tree — Feature Reference
 
-**Version**: 0.3.1
+**Version**: 0.3.2
 **Last updated**: 2026-03-26
 
 Definitive reference for all Knowledge Tree features — every command, option, model, and behavior.
@@ -45,7 +45,20 @@ brew install kBisla9/tap/knowledge-tree  # Homebrew
 
 Requires Python 3.10+. The CLI is available as both `kt` and `knowledge-tree`.
 
-**There is no `kt init` command.** The entry point is `kt registry add <source>`, which auto-initializes the project (creates `.knowledge-tree/` with empty `kt.yaml`) on first use.
+### Project Initialization
+
+```bash
+kt init [--format FORMAT] [--yes/-y]
+```
+
+Creates the `.knowledge-tree/` directory, sets the target AI export format (e.g., `claude-code`), and explicitly exports built-in commands and skills (like `/kt-propose`) into the tool's workspace. It is idempotent and safe to run again.
+
+| Option | Description |
+|--------|-------------|
+| `--format FORMAT` | Export format: `claude-code` or `roo-code` (prompted interactively if omitted) |
+| `--yes` / `-y` | Skip interactive prompt (requires `--format` to be provided) |
+
+> **Note**: It is **not strictly necessary** to run `kt init` first. If you skip this and jump straight to `kt registry add <source>`, Knowledge Tree will auto-initialize the project and export the built-in tooling for you behind the scenes.
 
 ---
 
@@ -571,6 +584,7 @@ A package is a named directory inside `packages/` (or `community/`) containing a
 | `content_type` | No | Package-wide default: `knowledge`, `skills`, or `commands` (default: `knowledge`) |
 | `export_hints` | No | Package-level per-tool type overrides (e.g., `claude-code: skills`) |
 | `commands` | No | List of command declarations — see [Commands List Format](#commands-list-format) |
+| `modes` | No | List of agent mode persona declarations |
 | `status` | No | `pending`, `promoted`, or `archived` |
 | `promoted_to` | No | Name of the curated package this was promoted to |
 | `promoted_date` | No | Date of promotion |
@@ -627,6 +641,7 @@ Both forms expect the file at `<package-dir>/commands/do-thing.md`.
 | `knowledge` | Passive context loaded automatically by agents (default) | `.claude/skills/<reg>/<pkg>/SKILL.md` | `.roo/rules/kt-<reg>-<pkg>-*.md` (always loaded) |
 | `skills` | On-demand capabilities the agent can invoke | `.claude/skills/<reg>/<pkg>/SKILL.md` | `.roo/skills/<name>/SKILL.md` (on-demand via description) |
 | `commands` | User-invocable slash commands (e.g., `/start-session`) | `.claude/skills/<cmd>/SKILL.md` (top-level, user-invocable) | `.roo/commands/<name>.md` |
+| `modes` | Agent personas (e.g., "Architect") | `.claude/skills/<mode>/SKILL.md` (top-level, user-invocable) | `.roomodes` file (automatically appears in UI) |
 
 ### Tree Structure
 

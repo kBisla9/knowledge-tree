@@ -75,6 +75,22 @@ class CommandEntry:
     description: str = ""  # empty = extract from file
 
 
+VALID_MODE_GROUPS = {"read", "edit", "command", "browser", "mcp"}
+
+
+@dataclass
+class ModeEntry:
+    """An agent mode (persona preset) declared in a package."""
+
+    slug: str = ""
+    name: str = ""
+    roleDefinition: str = ""
+    whenToUse: str = ""
+    description: str = ""
+    customInstructions: str = ""
+    groups: list[str] = field(default_factory=list)
+
+
 @dataclass
 class TemplateMapping:
     """A template file to scaffold into the project."""
@@ -107,6 +123,7 @@ class PackageMetadata:
     content_type: str = ""  # "knowledge" (default) or "skills"
     export_hints: dict[str, str] = field(default_factory=dict)  # tool-name → generic type
     commands: list[CommandEntry] = field(default_factory=list)
+    modes: list[ModeEntry] = field(default_factory=list)
 
     # Optional dates
     created: str | None = None
@@ -153,6 +170,28 @@ class PackageMetadata:
                     f"Invalid export_hints value '{hint_value}' for tool '{tool_name}'. "
                     f"Must be one of: {', '.join(sorted(VALID_EXPORT_HINT_VALUES))}"
                 )
+
+        seen_slugs: set[str] = set()
+        for mode in self.modes:
+            if not mode.slug:
+                errors.append("Mode 'slug' is required")
+            elif not PACKAGE_NAME_RE.match(mode.slug):
+                errors.append(f"Invalid mode slug '{mode.slug}'. Must be lowercase kebab-case.")
+            elif mode.slug in seen_slugs:
+                errors.append(f"Duplicate mode slug '{mode.slug}'")
+            else:
+                seen_slugs.add(mode.slug)
+
+            if not mode.name:
+                errors.append(f"Mode slug '{mode.slug}' requires a 'name'")
+            if not mode.roleDefinition:
+                errors.append(f"Mode slug '{mode.slug}' requires a 'roleDefinition'")
+            for group in mode.groups:
+                if group not in VALID_MODE_GROUPS:
+                    errors.append(
+                        f"Invalid group '{group}' in mode '{mode.slug}'. "
+                        f"Must be one of: {', '.join(sorted(VALID_MODE_GROUPS))}"
+                    )
 
         for item in self.content:
             for tool_name, hint_value in item.export_hints.items():
@@ -203,6 +242,22 @@ class PackageMetadata:
                     )
                 )
 
+        # Parse modes
+        modes: list[ModeEntry] = []
+        for item in data.get("modes", []):
+            if isinstance(item, dict):
+                modes.append(
+                    ModeEntry(
+                        slug=item.get("slug", ""),
+                        name=item.get("name", ""),
+                        roleDefinition=item.get("roleDefinition", ""),
+                        whenToUse=item.get("whenToUse", ""),
+                        description=item.get("description", ""),
+                        customInstructions=item.get("customInstructions", ""),
+                        groups=list(item.get("groups", [])),
+                    )
+                )
+
         return cls(
             name=data.get("name", ""),
             description=data.get("description", ""),
@@ -216,6 +271,7 @@ class PackageMetadata:
             content_type=data.get("content_type", ""),
             export_hints=dict(data.get("export_hints", {})),
             commands=commands,
+            modes=modes,
             created=data.get("created"),
             updated=data.get("updated"),
             status=data.get("status"),
@@ -267,6 +323,26 @@ class PackageMetadata:
                     d["description"] = cmd.description
                 cmds.append(d)
             data["commands"] = cmds
+        if self.modes:
+            modes_out: list = []
+            for mode in self.modes:
+                d = {}
+                if mode.slug:
+                    d["slug"] = mode.slug
+                if mode.name:
+                    d["name"] = mode.name
+                if mode.roleDefinition:
+                    d["roleDefinition"] = mode.roleDefinition
+                if mode.whenToUse:
+                    d["whenToUse"] = mode.whenToUse
+                if mode.description:
+                    d["description"] = mode.description
+                if mode.customInstructions:
+                    d["customInstructions"] = mode.customInstructions
+                if mode.groups:
+                    d["groups"] = mode.groups
+                modes_out.append(d)
+            data["modes"] = modes_out
         if self.created is not None:
             data["created"] = self.created
         if self.updated is not None:
@@ -557,6 +633,7 @@ class ExportedPackage:
     format: str = ""  # "claude-code" or "roo-code"
     ref: str = ""  # git ref (or "local"/"archive-hash") at time of export
     registry: str = ""  # registry UUID
+    modes: list[str] = field(default_factory=list)  # exported mode slugs
 
 
 @dataclass
@@ -624,6 +701,7 @@ class ProjectConfig:
                     format=exp_data.get("format", ""),
                     ref=exp_data.get("ref", ""),
                     registry=exp_data.get("registry", default_reg_id),
+                    modes=list(exp_data.get("modes", [])),
                 )
             )
 
@@ -655,15 +733,17 @@ class ProjectConfig:
         if self.export_format:
             data["export_format"] = self.export_format
         if self.exports:
-            data["exports"] = [
-                {
+            data["exports"] = []
+            for exp in self.exports:
+                exp_data: dict = {
                     "name": exp.name,
                     "format": exp.format,
                     "ref": exp.ref,
                     "registry": exp.registry,
                 }
-                for exp in self.exports
-            ]
+                if exp.modes:
+                    exp_data["modes"] = exp.modes
+                data["exports"].append(exp_data)
         save_yaml(data, path)
 
     # --- Registry helpers ---
@@ -742,13 +822,19 @@ class ProjectConfig:
 
     # --- Export helpers ---
 
-    def add_export(self, name: str, fmt: str, ref: str, registry: str = "") -> None:
+    def add_export(
+        self, name: str, fmt: str, ref: str, registry: str = "", modes: list[str] | None = None
+    ) -> None:
         """Add or update an export entry."""
+        modes = modes or []
         for exp in self.exports:
             if exp.name == name and exp.format == fmt and exp.registry == registry:
                 exp.ref = ref
+                exp.modes = modes
                 return
-        self.exports.append(ExportedPackage(name=name, format=fmt, ref=ref, registry=registry))
+        self.exports.append(
+            ExportedPackage(name=name, format=fmt, ref=ref, registry=registry, modes=modes)
+        )
 
     def remove_export(self, name: str, fmt: str | None = None) -> int:
         """Remove export entries for a package. If fmt is None, remove all formats.

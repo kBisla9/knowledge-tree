@@ -6,7 +6,7 @@ import shutil
 from pathlib import Path
 
 from knowledge_tree.exporters import Exporter, ExportResult, UnexportResult
-from knowledge_tree.models import CommandEntry, ContentItem, PackageMetadata
+from knowledge_tree.models import CommandEntry, ContentItem, ModeEntry, PackageMetadata
 
 _MANAGED_MARKER = "<!-- Managed by Knowledge Tree — do not edit manually -->"
 
@@ -111,6 +111,12 @@ class ClaudeCodeExporter(Exporter):
             files_written.extend(cmd_result.files_written)
             files_skipped.extend(cmd_result.files_skipped)
 
+        # --- Export modes ---
+        if metadata.modes:
+            modes_result = self.export_modes(package_name, metadata.modes, registry_name, force)
+            files_written.extend(modes_result.files_written)
+            files_skipped.extend(modes_result.files_skipped)
+
         return ExportResult(
             package_name=package_name,
             files_written=files_written,
@@ -122,6 +128,7 @@ class ClaudeCodeExporter(Exporter):
         package_name: str,
         registry_name: str = "default",
         metadata: PackageMetadata | None = None,
+        mode_slugs: list[str] | None = None,
     ) -> UnexportResult:
         """Remove a Claude Code skill directory for a package.
 
@@ -157,6 +164,11 @@ class ClaudeCodeExporter(Exporter):
             if cmd_names:
                 cmd_result = self.unexport_commands(package_name, cmd_names, registry_name)
                 files_removed.extend(cmd_result.files_removed)
+
+        # Clean up modes
+        if mode_slugs:
+            modes_result = self.unexport_modes(package_name, mode_slugs, registry_name)
+            files_removed.extend(modes_result.files_removed)
 
         return UnexportResult(
             package_name=package_name,
@@ -236,6 +248,91 @@ class ClaudeCodeExporter(Exporter):
             package_name=package_name,
             files_removed=files_removed,
         )
+
+    def export_modes(
+        self,
+        package_name: str,
+        modes: list[ModeEntry],
+        registry_name: str = "default",
+        force: bool = False,
+    ) -> ExportResult:
+        """Export mode entries as top-level user-invocable Claude Code skills."""
+        files_written: list[Path] = []
+        files_skipped: list[Path] = []
+
+        for mode in modes:
+            if not mode.slug:
+                continue
+
+            skill_dir = self._skills_dir / mode.slug
+            skill_md = skill_dir / "SKILL.md"
+
+            # Conflict check
+            if skill_dir.exists() and not force:
+                if skill_md.exists() and _MANAGED_MARKER in skill_md.read_text():
+                    pass  # ours — safe to overwrite
+                else:
+                    files_skipped.append(skill_dir)
+                    continue
+
+            # Clean and recreate
+            if skill_dir.exists():
+                shutil.rmtree(skill_dir)
+            skill_dir.mkdir(parents=True)
+
+            description = mode.whenToUse or mode.roleDefinition.splitlines()[0][:100]
+
+            lines = [
+                "---",
+                f"name: {mode.slug}",
+                f'description: "{description}"',
+                "user-invocable: true",
+                "---",
+                "",
+                _MANAGED_MARKER,
+                "",
+                mode.roleDefinition,
+            ]
+            if mode.customInstructions:
+                lines.append("")
+                lines.append(mode.customInstructions)
+
+            if lines[-1] != "":
+                lines.append("")
+
+            skill_md.write_text("\n".join(lines))
+            files_written.append(skill_md)
+
+        return ExportResult(
+            package_name=package_name,
+            files_written=files_written,
+            files_skipped=files_skipped,
+        )
+
+    def unexport_modes(
+        self,
+        package_name: str,
+        mode_slugs: list[str],
+        registry_name: str = "default",
+    ) -> UnexportResult:
+        """Remove mode skill directories that have the KT managed marker."""
+        files_removed: list[Path] = []
+
+        if not mode_slugs:
+            return UnexportResult(package_name=package_name)
+
+        for slug in mode_slugs:
+            skill_dir = self._skills_dir / slug
+            if not skill_dir.exists():
+                continue
+            skill_md = skill_dir / "SKILL.md"
+            if skill_md.exists() and _MANAGED_MARKER in skill_md.read_text():
+                for f in skill_dir.rglob("*"):
+                    if f.is_file():
+                        files_removed.append(f)
+                shutil.rmtree(skill_dir)
+
+        return UnexportResult(package_name=package_name, files_removed=files_removed)
 
     def export_builtin_skill(
         self,

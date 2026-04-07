@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 from pathlib import Path
 
 from knowledge_tree.exporters import Exporter, ExportResult, UnexportResult
-from knowledge_tree.models import CommandEntry, ContentItem, PackageMetadata
+from knowledge_tree.models import CommandEntry, ContentItem, ModeEntry, PackageMetadata
 
 _MANAGED_COMMENT = '<!-- Managed by Knowledge Tree: registry "{registry}" package "{name}" -->'
 _SKILL_MANAGED_COMMENT = (
@@ -142,6 +143,13 @@ class RooCodeExporter(Exporter):
             cmd_result = self.export_commands(package_name, cmd_pairs, registry_name)
             files_written.extend(cmd_result.files_written)
             files_skipped.extend(cmd_result.files_skipped)
+
+        # --- Export modes ---
+        if metadata.modes:
+            modes_result = self.export_modes(package_name, metadata.modes, registry_name, force)
+            files_written.extend(modes_result.files_written)
+            files_skipped.extend(modes_result.files_skipped)
+            warnings.extend(modes_result.warnings)
 
         return ExportResult(
             package_name=package_name,
@@ -374,11 +382,127 @@ class RooCodeExporter(Exporter):
 
         return UnexportResult(package_name=package_name, files_removed=files_removed)
 
+    def export_modes(
+        self,
+        package_name: str,
+        modes: list[ModeEntry],
+        registry_name: str = "default",
+        force: bool = False,
+    ) -> ExportResult:
+        """Export mode entries to .roomodes file."""
+        files_written: list[Path] = []
+        files_skipped: list[Path] = []
+        warnings: list[str] = []
+
+        roomodes_path = self.project_root / ".roomodes"
+        data = {"customModes": []}
+        if roomodes_path.exists():
+            try:
+                data = json.loads(roomodes_path.read_text())
+                if "customModes" not in data or not isinstance(data["customModes"], list):
+                    data["customModes"] = []
+            except Exception:
+                warnings.append(
+                    ".roomodes is not valid JSON. Skipping modes export to avoid corruption."
+                )
+                return ExportResult(package_name=package_name, warnings=warnings)
+
+        existing_modes = data["customModes"]
+        existing_slugs = {
+            m.get("slug"): i
+            for i, m in enumerate(existing_modes)
+            if isinstance(m, dict) and "slug" in m
+        }
+
+        modified = False
+        for mode in modes:
+            if not mode.slug:
+                continue
+
+            mode_dict = {
+                "slug": mode.slug,
+                "name": mode.name,
+                "roleDefinition": mode.roleDefinition,
+            }
+            if mode.whenToUse:
+                mode_dict["whenToUse"] = mode.whenToUse
+            if mode.description:
+                mode_dict["description"] = mode.description
+            if mode.customInstructions:
+                mode_dict["customInstructions"] = mode.customInstructions
+            if mode.groups:
+                mode_dict["groups"] = mode.groups
+
+            if mode.slug in existing_slugs:
+                if force:
+                    existing_modes[existing_slugs[mode.slug]] = mode_dict
+                    modified = True
+                else:
+                    warnings.append(
+                        f"Mode '{mode.slug}' already exists in .roomodes — skipping (user-defined modes take precedence)"
+                    )
+                    files_skipped.append(roomodes_path)
+            else:
+                existing_modes.append(mode_dict)
+                existing_slugs[mode.slug] = len(existing_modes) - 1
+                modified = True
+
+        if modified:
+            roomodes_path.write_text(json.dumps(data, indent=2) + "\n")
+            files_written.append(roomodes_path)
+
+        return ExportResult(
+            package_name=package_name,
+            files_written=files_written,
+            files_skipped=files_skipped,
+            warnings=warnings,
+        )
+
+    def unexport_modes(
+        self,
+        package_name: str,
+        mode_slugs: list[str],
+        registry_name: str = "default",
+    ) -> UnexportResult:
+        """Remove exported modes from .roomodes."""
+        files_removed: list[Path] = []
+        roomodes_path = self.project_root / ".roomodes"
+
+        if not roomodes_path.exists() or not mode_slugs:
+            return UnexportResult(package_name=package_name)
+
+        try:
+            data = json.loads(roomodes_path.read_text())
+        except Exception:
+            return UnexportResult(package_name=package_name)
+
+        if "customModes" not in data or not isinstance(data["customModes"], list):
+            return UnexportResult(package_name=package_name)
+
+        original_len = len(data["customModes"])
+        slugs_to_remove = set(mode_slugs)
+        data["customModes"] = [
+            m
+            for m in data["customModes"]
+            if not (isinstance(m, dict) and m.get("slug") in slugs_to_remove)
+        ]
+
+        if len(data["customModes"]) != original_len:
+            if not data["customModes"] and list(data.keys()) == ["customModes"]:
+                roomodes_path.unlink()
+                files_removed.append(roomodes_path)
+            else:
+                roomodes_path.write_text(json.dumps(data, indent=2) + "\n")
+                files_removed.append(roomodes_path)
+
+        return UnexportResult(package_name=package_name, files_removed=files_removed)
+
     def unexport_package(
         self,
         package_name: str,
         registry_name: str = "default",
         metadata: PackageMetadata | None = None,
+        mode_slugs: list[str] | None = None,
     ) -> UnexportResult:
         """Remove Roo Code rule files, skill directories, and commands for a package."""
         files_removed: list[Path] = []
@@ -417,6 +541,11 @@ class RooCodeExporter(Exporter):
                 if marker_pkg in content and marker_reg in content:
                     files_removed.append(cmd_file)
                     cmd_file.unlink()
+
+        # Remove modes
+        if mode_slugs:
+            modes_result = self.unexport_modes(package_name, mode_slugs, registry_name)
+            files_removed.extend(modes_result.files_removed)
 
         return UnexportResult(
             package_name=package_name,

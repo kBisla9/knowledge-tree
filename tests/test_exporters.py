@@ -14,7 +14,7 @@ from knowledge_tree.exporters import (
 )
 from knowledge_tree.exporters.claude_code import _MANAGED_MARKER, ClaudeCodeExporter
 from knowledge_tree.exporters.roo_code import RooCodeExporter
-from knowledge_tree.models import CommandEntry, ContentItem, PackageMetadata
+from knowledge_tree.models import CommandEntry, ContentItem, ModeEntry, PackageMetadata
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -1457,3 +1457,351 @@ class TestRooCodeBuiltinSkill:
         result = exporter.export_builtin_skill("kt-reference", source, "desc")
         assert len(result.files_skipped) == 1
         assert len(result.files_written) == 0
+
+
+# ===========================================================================
+# RooCodeExporter — Modes export
+# ===========================================================================
+
+
+class TestRooCodeModeExport:
+    def test_export_modes_creates_roomodes(self, tmp_path):
+        exporter = RooCodeExporter(tmp_path)
+        meta = PackageMetadata(
+            name="core",
+            description="Core",
+            authors=["Test"],
+            classification="evergreen",
+            modes=[
+                ModeEntry(slug="arch", name="Architect", roleDefinition="Design systems"),
+            ],
+        )
+
+        source = _make_knowledge_dir(tmp_path, "core", {})
+        exporter.export_package("core", source, meta, registry_name="default")
+
+        roomodes = tmp_path / ".roomodes"
+        assert roomodes.exists()
+        import json
+
+        data = json.loads(roomodes.read_text())
+        assert "customModes" in data
+        assert len(data["customModes"]) == 1
+        assert data["customModes"][0]["slug"] == "arch"
+        assert data["customModes"][0]["name"] == "Architect"
+        assert data["customModes"][0]["roleDefinition"] == "Design systems"
+
+    def test_export_modes_merges_with_existing(self, tmp_path):
+        import json
+
+        roomodes = tmp_path / ".roomodes"
+        roomodes.write_text(
+            json.dumps(
+                {
+                    "customModes": [
+                        {"slug": "existing", "name": "Existing Mode", "roleDefinition": "Test"}
+                    ]
+                }
+            )
+        )
+
+        exporter = RooCodeExporter(tmp_path)
+        meta = PackageMetadata(
+            name="core",
+            description="Core",
+            authors=["Test"],
+            classification="evergreen",
+            modes=[
+                ModeEntry(slug="arch", name="Architect", roleDefinition="Design systems"),
+            ],
+        )
+
+        source = _make_knowledge_dir(tmp_path, "core", {})
+        exporter.export_package("core", source, meta, registry_name="default")
+
+        data = json.loads(roomodes.read_text())
+        assert len(data["customModes"]) == 2
+        slugs = [m["slug"] for m in data["customModes"]]
+        assert "existing" in slugs
+        assert "arch" in slugs
+
+    def test_export_modes_skip_existing_slug(self, tmp_path):
+        """Existing slug is skipped with warning; user-defined modes take precedence."""
+        import json
+
+        roomodes = tmp_path / ".roomodes"
+        roomodes.write_text(
+            json.dumps(
+                {
+                    "customModes": [
+                        {
+                            "slug": "arch",
+                            "name": "User Architect",
+                            "roleDefinition": "User version",
+                        }
+                    ]
+                }
+            )
+        )
+
+        exporter = RooCodeExporter(tmp_path)
+        modes = [ModeEntry(slug="arch", name="KT Architect", roleDefinition="KT version")]
+        result = exporter.export_modes("core", modes, registry_name="default")
+
+        assert len(result.warnings) == 1
+        assert "already exists" in result.warnings[0]
+        assert len(result.files_skipped) == 1
+        assert len(result.files_written) == 0
+
+        # User's mode is preserved unchanged
+        data = json.loads(roomodes.read_text())
+        assert len(data["customModes"]) == 1
+        assert data["customModes"][0]["name"] == "User Architect"
+
+    def test_export_modes_force_overwrites(self, tmp_path):
+        """force=True overwrites existing slug."""
+        import json
+
+        roomodes = tmp_path / ".roomodes"
+        roomodes.write_text(
+            json.dumps(
+                {"customModes": [{"slug": "arch", "name": "Old", "roleDefinition": "Old def"}]}
+            )
+        )
+
+        exporter = RooCodeExporter(tmp_path)
+        modes = [ModeEntry(slug="arch", name="New", roleDefinition="New def")]
+        result = exporter.export_modes("core", modes, registry_name="default", force=True)
+
+        assert len(result.files_written) == 1
+        assert len(result.warnings) == 0
+
+        data = json.loads(roomodes.read_text())
+        assert len(data["customModes"]) == 1
+        assert data["customModes"][0]["name"] == "New"
+        assert data["customModes"][0]["roleDefinition"] == "New def"
+
+    def test_export_modes_invalid_json(self, tmp_path):
+        """Corrupt .roomodes triggers warning and skips all modes."""
+        roomodes = tmp_path / ".roomodes"
+        roomodes.write_text("{not valid json!!")
+
+        exporter = RooCodeExporter(tmp_path)
+        modes = [ModeEntry(slug="arch", name="Arch", roleDefinition="Def")]
+        result = exporter.export_modes("core", modes)
+
+        assert len(result.warnings) == 1
+        assert "not valid JSON" in result.warnings[0]
+        assert len(result.files_written) == 0
+        # Original file untouched
+        assert roomodes.read_text() == "{not valid json!!"
+
+    def test_export_modes_optional_fields_omitted(self, tmp_path):
+        """Optional mode fields (whenToUse, description, etc.) omitted from JSON when empty."""
+        import json
+
+        exporter = RooCodeExporter(tmp_path)
+        modes = [ModeEntry(slug="arch", name="Arch", roleDefinition="Def")]
+        exporter.export_modes("core", modes)
+
+        data = json.loads((tmp_path / ".roomodes").read_text())
+        mode = data["customModes"][0]
+        assert "whenToUse" not in mode
+        assert "description" not in mode
+        assert "customInstructions" not in mode
+        assert "groups" not in mode
+
+    def test_unexport_modes_removes_entries(self, tmp_path):
+        exporter = RooCodeExporter(tmp_path)
+        meta = PackageMetadata(
+            name="core",
+            description="Core",
+            authors=["Test"],
+            classification="evergreen",
+            modes=[
+                ModeEntry(slug="arch", name="Architect", roleDefinition="Design systems"),
+            ],
+        )
+
+        source = _make_knowledge_dir(tmp_path, "core", {})
+        exporter.export_package("core", source, meta, registry_name="default")
+
+        result = exporter.unexport_package("core", registry_name="default", mode_slugs=["arch"])
+
+        roomodes = tmp_path / ".roomodes"
+        assert not roomodes.exists()
+        assert len(result.files_removed) >= 1
+
+    def test_unexport_modes_preserves_user_modes(self, tmp_path):
+        """Only KT-exported slugs are removed; user-defined modes survive."""
+        import json
+
+        roomodes = tmp_path / ".roomodes"
+        roomodes.write_text(
+            json.dumps(
+                {
+                    "customModes": [
+                        {"slug": "kt-mode", "name": "KT", "roleDefinition": "KT def"},
+                        {"slug": "user-mode", "name": "User", "roleDefinition": "User def"},
+                    ]
+                }
+            )
+        )
+
+        exporter = RooCodeExporter(tmp_path)
+        result = exporter.unexport_modes("core", mode_slugs=["kt-mode"])
+
+        assert len(result.files_removed) == 1
+        data = json.loads(roomodes.read_text())
+        assert len(data["customModes"]) == 1
+        assert data["customModes"][0]["slug"] == "user-mode"
+
+    def test_unexport_modes_deletes_empty_file(self, tmp_path):
+        """When customModes empties and no other top-level keys, file is deleted."""
+        import json
+
+        roomodes = tmp_path / ".roomodes"
+        roomodes.write_text(json.dumps({"customModes": [{"slug": "only", "name": "Only"}]}))
+
+        exporter = RooCodeExporter(tmp_path)
+        result = exporter.unexport_modes("core", mode_slugs=["only"])
+
+        assert not roomodes.exists()
+        assert len(result.files_removed) == 1
+
+    def test_unexport_modes_keeps_file_with_other_keys(self, tmp_path):
+        """File is kept (not deleted) when other top-level keys exist."""
+        import json
+
+        roomodes = tmp_path / ".roomodes"
+        roomodes.write_text(
+            json.dumps({"customModes": [{"slug": "only", "name": "Only"}], "otherConfig": True})
+        )
+
+        exporter = RooCodeExporter(tmp_path)
+        exporter.unexport_modes("core", mode_slugs=["only"])
+
+        assert roomodes.exists()
+        data = json.loads(roomodes.read_text())
+        assert data["customModes"] == []
+        assert data["otherConfig"] is True
+
+
+# ===========================================================================
+# ClaudeCodeExporter — Modes export
+# ===========================================================================
+
+
+class TestClaudeCodeModeExport:
+    def test_export_modes_creates_skill_directories(self, tmp_path):
+        exporter = ClaudeCodeExporter(tmp_path)
+        meta = PackageMetadata(
+            name="core",
+            description="Core",
+            authors=["Test"],
+            classification="evergreen",
+            modes=[
+                ModeEntry(
+                    slug="arch",
+                    name="Architect",
+                    roleDefinition="Design systems",
+                    description="Arch desc",
+                ),
+            ],
+        )
+
+        source = _make_knowledge_dir(tmp_path, "core", {})
+        exporter.export_package("core", source, meta, registry_name="default")
+
+        skill_md = tmp_path / ".claude" / "skills" / "arch" / "SKILL.md"
+        assert skill_md.exists()
+        content = skill_md.read_text()
+        assert "name: arch" in content
+        assert "user-invocable: true" in content
+        assert "Design systems" in content
+
+    def test_export_modes_skill_content(self, tmp_path):
+        """SKILL.md has roleDefinition + customInstructions in body, whenToUse as description."""
+        exporter = ClaudeCodeExporter(tmp_path)
+        modes = [
+            ModeEntry(
+                slug="reviewer",
+                name="Code Reviewer",
+                roleDefinition="You are a code reviewer.",
+                whenToUse="When reviewing PRs.",
+                customInstructions="Focus on security.",
+            ),
+        ]
+        exporter.export_modes("core", modes)
+
+        skill_md = tmp_path / ".claude" / "skills" / "reviewer" / "SKILL.md"
+        content = skill_md.read_text()
+        assert 'description: "When reviewing PRs."' in content
+        assert "You are a code reviewer." in content
+        assert "Focus on security." in content
+        assert _MANAGED_MARKER in content
+
+    def test_export_modes_ignores_groups(self, tmp_path):
+        """Groups field is Roo-specific and should not appear in Claude Code SKILL.md."""
+        exporter = ClaudeCodeExporter(tmp_path)
+        modes = [
+            ModeEntry(
+                slug="arch",
+                name="Arch",
+                roleDefinition="Def",
+                groups=["read", "edit"],
+            ),
+        ]
+        exporter.export_modes("core", modes)
+
+        content = (tmp_path / ".claude" / "skills" / "arch" / "SKILL.md").read_text()
+        assert "groups" not in content
+        assert (
+            "read" not in content.split("---")[-1]
+        )  # not in body (only frontmatter name: arch has 'r')
+
+    def test_export_modes_description_fallback(self, tmp_path):
+        """When whenToUse is empty, description falls back to first line of roleDefinition."""
+        exporter = ClaudeCodeExporter(tmp_path)
+        modes = [
+            ModeEntry(
+                slug="arch", name="Arch", roleDefinition="First line of role.\nSecond line."
+            ),
+        ]
+        exporter.export_modes("core", modes)
+
+        content = (tmp_path / ".claude" / "skills" / "arch" / "SKILL.md").read_text()
+        assert 'description: "First line of role."' in content
+
+    def test_unexport_modes_removes_skills(self, tmp_path):
+        exporter = ClaudeCodeExporter(tmp_path)
+        meta = PackageMetadata(
+            name="core",
+            description="Core",
+            authors=["Test"],
+            classification="evergreen",
+            modes=[
+                ModeEntry(slug="arch", name="Architect", roleDefinition="Design systems"),
+            ],
+        )
+
+        source = _make_knowledge_dir(tmp_path, "core", {})
+        exporter.export_package("core", source, meta, registry_name="default")
+
+        result = exporter.unexport_package("core", registry_name="default", mode_slugs=["arch"])
+
+        skill_dir = tmp_path / ".claude" / "skills" / "arch"
+        assert not skill_dir.exists()
+        assert len(result.files_removed) >= 1
+
+    def test_unexport_modes_skips_non_managed(self, tmp_path):
+        """Non-KT skill directory with same slug is not removed."""
+        skill_dir = tmp_path / ".claude" / "skills" / "arch"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text("User's own skill, no managed marker")
+
+        exporter = ClaudeCodeExporter(tmp_path)
+        result = exporter.unexport_modes("core", mode_slugs=["arch"])
+
+        assert skill_dir.exists()
+        assert len(result.files_removed) == 0

@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from knowledge_tree.models import CommandEntry, ContentItem, PackageMetadata
+from knowledge_tree.models import CommandEntry, ContentItem, ModeEntry, PackageMetadata
 
 
 @dataclass
@@ -53,6 +53,7 @@ class Exporter(ABC):
         self,
         package_name: str,
         registry_name: str = "default",
+        mode_slugs: list[str] | None = None,
     ) -> UnexportResult:
         """Remove exported files for a package."""
         ...
@@ -73,6 +74,25 @@ class Exporter(ABC):
         registry_name: str = "default",
     ) -> UnexportResult:
         """Remove exported command skills. Default: no-op."""
+        return UnexportResult(package_name=package_name)
+
+    def export_modes(
+        self,
+        package_name: str,
+        modes: list[ModeEntry],
+        registry_name: str = "default",
+        force: bool = False,
+    ) -> ExportResult:
+        """Export mode entries to tool-specific format. Default: no-op."""
+        return ExportResult(package_name=package_name)
+
+    def unexport_modes(
+        self,
+        package_name: str,
+        mode_slugs: list[str],
+        registry_name: str = "default",
+    ) -> UnexportResult:
+        """Remove exported modes. Default: no-op."""
         return UnexportResult(package_name=package_name)
 
     def export_builtin_skill(
